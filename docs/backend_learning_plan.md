@@ -56,14 +56,16 @@ Order: architecture first (you need the skeleton before anything else fits into 
 
 ## 5. Testing & Documentation
 
-**Concepts:** unit tests with Jest (mocking providers/DI), Swagger/OpenAPI decorators, structured logging, consistent error handling (exception filters).
+**Concepts:** unit tests with Jest (mocking providers/DI), OpenAPI spec generation, API reference docs via Scalar, structured logging, consistent error handling (exception filters).
 
-**Build:** unit tests for the `AuthService` (nonce/verify logic) and `AIService` (mocked provider), Swagger docs for the `/auth` routes, a global exception filter with structured log output.
+**Build:** unit tests for the `AuthService` (nonce/verify logic) and `AIService` (mocked provider); an OpenAPI spec generated with `@nestjs/swagger`'s `DocumentBuilder`, rendered as an API reference for the `/auth` routes using `@scalar/nestjs-api-reference` (instead of the default Swagger UI); a global exception filter with structured log output.
 
 **Resources:**
-- NestJS docs: Testing, OpenAPI (Swagger), Exception Filters, Logger
+- NestJS docs: Testing, Exception Filters, Logger
+- NestJS docs: OpenAPI introduction (spec generation only, via `@nestjs/swagger`)
+- Scalar docs: NestJS integration (`@scalar/nestjs-api-reference`)
 
-**Done when:** `npm run test` passes for both services, and `/api` (Swagger UI) shows documented auth endpoints.
+**Done when:** `npm run test` passes for both services, and `/reference` (Scalar API reference) shows the documented auth endpoints, generated from the OpenAPI spec.
 
 ---
 
