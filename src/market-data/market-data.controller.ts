@@ -1,12 +1,17 @@
-import { Controller, Get } from '@nestjs/common';
-import { MarketDataService } from './market-data.service';
+import { Controller, Get, Param } from "@nestjs/common";
+import { MarketDataService } from "./market-data.service";
 
-@Controller('market-data')
+@Controller("market-data")
 export class MarketDataController {
   constructor(private readonly marketdataService: MarketDataService) {}
 
-  @Get('ping')
+  @Get("ping")
   ping() {
     return this.marketdataService.ping();
+  }
+
+  @Get("price/:symbol")
+  getPrice(@Param("symbol") symbol: string) {
+    return this.marketdataService.getPrice(symbol);
   }
 }

@@ -66,6 +66,14 @@ Done when: `curl http://localhost:3000/portfolio/abc123/summary` returns a real 
 Add a `## Notes` section below and answer: why does NestJS make you go through modules/DI instead of just writing `new WalletService()` inside `PortfolioService`? What do you gain, what does it cost?
 Done when: you've written that paragraph without looking it up — checking it against the docs afterward is fine.
 
+## Notes
+
+When creating new api calls from in nestjs. It feels allot like creating new modules in like it is in angular. You create a new controller and service and then you wire them together in the module. The controller is responsible for handling the request and the service is responsible for the business logic. The service can be injected into the controller using dependency injection. This allows for better separation of concerns and makes it easier to test the code.
+
+So i already had a basic understanding of how to creating new api calls. The new things are the properties of the decorators. The @Get decorator is used to define a route for a GET request. The @Param decorator is used to extract parameters from the route. But the @Injectable decorator also exists in the angular framework. So thats not new to me.
+
+The youtube videos are very helpful in understanding the concepts of nestjs. The first video is a crash course that gives a quick orientation to the CLI and project structure. The second video is a comprehensive step-by-step tutorial that covers modules, controllers, and services together. The third video is about dependency injection and is very helpful in understanding how to use it in nestjs.
+
 ### Documentation
 
 - [NestJS — First Steps](https://docs.nestjs.com/first-steps)

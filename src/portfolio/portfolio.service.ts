@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable } from "@nestjs/common";
+import { WalletService } from "src/wallet/wallet.service";
 
 @Injectable()
 export class PortfolioService {
@@ -11,11 +12,13 @@ export class PortfolioService {
   // 4. Use it in getSummary() below to include the wallet balance
   //    in the portfolio summary.
 
+  constructor(private readonly walletService: WalletService) {}
+
   getSummary(address: string) {
     return {
       address,
       // TODO: replace this hardcoded value by calling walletService.getBalance(address)
-      walletBalance: null,
+      walletBalance: this.walletService.getBalance(address).balance,
       holdings: [],
     };
   }
