@@ -6,3 +6,8 @@ github_issues.md
 
 # Local agent/tooling configs (not part of the project)
 agents/
+
+# Node / NestJS build artifacts
+node_modules/
+dist/
+*.log
