@@ -89,8 +89,13 @@ Add your notes below and answer: what actually stops someone from replaying an *
 Done when: you've written that paragraph without looking it up.
 
 ## Notes
+What actually stops someone from replaying an *old* signature against `/auth/verify` is the nonce. Each time a user wants to log in, the server generates a new, unique nonce and sends it to the client. The client must sign this specific nonce with their private key. When the server receives the signed message, it checks if the nonce matches the one it generated for that public key. If someone tries to replay an old signature, the nonce will not match because it has already been used and removed from the server's memory. This ensures that each login attempt requires a fresh signature, preventing replay attacks.
 
-_(fill this in once you've done the assignments — same as Topic 1)_
+What was hard for me was using the `nacl` library to verify the signature. I had to make sure that I was encoding the message correctly and decoding the public key and signature from base58. It took some trial and error to get it right, but once I understood how to use the library, it became much easier.
+
+A new term i learned was the using strategy pattern in nestjs. The strategy pattern is a behavioral design pattern that allows you to define a family of algorithms, encapsulate each one, and make them interchangeable. In the context of nestjs, the strategy pattern is used to implement authentication strategies. Each strategy defines how to authenticate a user, and you can switch between different strategies without changing the code that uses them. This makes it easy to add new authentication methods or change existing ones without affecting the rest of the application.
+
+Other things where familiar to me because i have used angular before. The decorators and dependency injection are very similar to angular. The main difference is that nestjs is a backend framework, while angular is a frontend framework. But the concepts are very similar.
 
 ### Documentation
 
