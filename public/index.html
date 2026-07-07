@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WalletPilot — Phantom Sign-In</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1115;
+        --card: #171a21;
+        --border: #2a2f3a;
+        --text: #e6e8ec;
+        --muted: #9aa3b2;
+        --accent: #ab9ff2;
+        --accent-fg: #1a1428;
+        --ok: #4ade80;
+        --warn: #fbbf24;
+        --err: #f87171;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .card {
+        width: 100%;
+        max-width: 560px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 28px;
+      }
+      h1 { margin: 0 0 4px; font-size: 20px; }
+      p.sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+      code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 10px;
+        padding: 12px 18px;
+        font-size: 15px;
+        font-weight: 600;
+        background: var(--accent);
+        color: var(--accent-fg);
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      button.secondary {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 8px 14px;
+        font-size: 14px;
+      }
+      .session {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .session .timer {
+        flex: 1 1 auto;
+        min-width: 180px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .session .timer strong {
+        font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--text);
+      }
+      .session.warn .timer strong { color: var(--warn); }
+      .session.expired .timer strong { color: var(--err); }
+      .result {
+        margin-top: 18px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(171, 159, 242, 0.08);
+        font-size: 14px;
+        word-break: break-all;
+        display: none;
+      }
+      .result.show { display: block; }
+      .result.ok { border-color: var(--ok); }
+      .result.err { border-color: var(--err); }
+      .result strong { display: block; margin-bottom: 4px; color: var(--muted); font-weight: 600; }
+      #log {
+        margin-top: 18px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: #0b0d12;
+        border: 1px solid var(--border);
+        font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--muted);
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 260px;
+        overflow-y: auto;
+      }
+      #log .step { color: var(--text); }
+      #log .good { color: var(--ok); }
+      #log .bad { color: var(--err); }
+      a { color: var(--accent); }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>WalletPilot — Sign in with Phantom</h1>
+      <p class="sub">
+        Connect a real Phantom wallet, sign a server nonce, and get your public
+        key back from the JWT-guarded <code>/auth/me</code>. The token is kept in
+        <code>localStorage</code>, so a reload keeps you signed in until it expires.
+      </p>
+
+      <!-- Signed-out view -->
+      <div id="signedOut">
+        <button id="connect">Connect Phantom</button>
+      </div>
+
+      <!-- Signed-in view -->
+      <div id="signedIn" hidden>
+        <div id="result-in" class="result ok show">
+          <strong>Signed in — public key:</strong>
+          <span id="who"></span>
+        </div>
+        <div class="session" id="session">
+          <div class="timer">
+            Session expires in <strong id="countdown">--:--</strong>
+          </div>
+          <button id="reauth" class="secondary">Re-authenticate</button>
+          <button id="logout" class="secondary">Log out</button>
+        </div>
+      </div>
+
+      <div id="result" class="result"></div>
+      <pre id="log"></pre>
+    </div>
+
+    <script>
+      // --- tiny, dependency-free base58 encoder (Bitcoin/Solana alphabet) ---
+      // Phantom's signMessage returns raw bytes; the API decodes with bs58.decode,
+      // so we must send the signature base58-encoded.
+      const B58 =
+        "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+      function base58Encode(bytes) {
+        const digits = [];
+        for (let i = 0; i < bytes.length; i++) {
+          let carry = bytes[i];
+          for (let j = 0; j < digits.length; j++) {
+            carry += digits[j] << 8;
+            digits[j] = carry % 58;
+            carry = (carry / 58) | 0;
+          }
+          while (carry > 0) {
+            digits.push(carry % 58);
+            carry = (carry / 58) | 0;
+          }
+        }
+        let out = "";
+        // preserve leading zero bytes as leading '1's
+        for (let k = 0; k < bytes.length && bytes[k] === 0; k++) out += "1";
+        for (let q = digits.length - 1; q >= 0; q--) out += B58[digits[q]];
+        return out;
+      }
+
+      // --- session state ---
+      const STORAGE_KEY = "walletpilot_jwt";
+      let countdownTimer = null;
+
+      // --- DOM refs ---
+      const logEl = document.getElementById("log");
+      const resultEl = document.getElementById("result");
+      const btn = document.getElementById("connect");
+      const signedOutEl = document.getElementById("signedOut");
+      const signedInEl = document.getElementById("signedIn");
+      const whoEl = document.getElementById("who");
+      const sessionEl = document.getElementById("session");
+      const countdownEl = document.getElementById("countdown");
+      const reauthBtn = document.getElementById("reauth");
+      const logoutBtn = document.getElementById("logout");
+
+      // --- UI helpers ---
+      function log(msg, cls = "step") {
+        const line = document.createElement("span");
+        line.className = cls;
+        line.textContent = msg + "\n";
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      function showResult(label, value, cls) {
+        resultEl.className = "result show " + cls;
+        resultEl.innerHTML = "";
+        const strong = document.createElement("strong");
+        strong.textContent = label;
+        resultEl.appendChild(strong);
+        resultEl.appendChild(document.createTextNode(value));
+      }
+      function clearResult() {
+        resultEl.className = "result";
+      }
+
+      // --- JWT helpers (decode only — no verification, that's the server's job) ---
+      function decodeJwt(token) {
+        const payload = token.split(".")[1];
+        const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+        return JSON.parse(json); // { sub, iat, exp }
+      }
+
+      function formatRemaining(ms) {
+        const s = Math.max(0, Math.floor(ms / 1000));
+        const mm = String(Math.floor(s / 60)).padStart(2, "0");
+        const ss = String(s % 60).padStart(2, "0");
+        return mm + ":" + ss;
+      }
+
+      // Live countdown to the JWT's `exp`. There is NO server refresh endpoint —
+      // the token is signed once with expiresIn '1h'. So when it runs low we can't
+      // silently refresh; we surface it and let the user re-sign (Re-authenticate).
+      function startCountdown(expSeconds) {
+        clearInterval(countdownTimer);
+        let warnedSoon = false;
+        const tick = () => {
+          const remaining = expSeconds * 1000 - Date.now();
+          if (remaining <= 0) {
+            countdownEl.textContent = "expired";
+            sessionEl.classList.remove("warn");
+            sessionEl.classList.add("expired");
+            clearInterval(countdownTimer);
+            onExpired();
+            return;
+          }
+          countdownEl.textContent = formatRemaining(remaining);
+          const soon = remaining < 5 * 60 * 1000; // under 5 min
+          sessionEl.classList.toggle("warn", soon);
+          if (soon && !warnedSoon) {
+            warnedSoon = true;
+            log(
+              "⚠ Session expiring soon — click Re-authenticate to get a fresh token.",
+              "step",
+            );
+          }
+        };
+        tick();
+        countdownTimer = setInterval(tick, 1000);
+      }
+
+      function onExpired() {
+        localStorage.removeItem(STORAGE_KEY);
+        log("Session expired. Re-authenticate to continue.", "bad");
+        showResult(
+          "Session expired",
+          "Your 1-hour token has expired. Click Re-authenticate to sign a fresh nonce.",
+          "err",
+        );
+      }
+
+      // --- view transitions ---
+      function enterSignedIn(token, sub) {
+        localStorage.setItem(STORAGE_KEY, token);
+        whoEl.textContent = sub;
+        sessionEl.classList.remove("warn", "expired");
+        signedOutEl.hidden = true;
+        signedInEl.hidden = false;
+        clearResult();
+        startCountdown(decodeJwt(token).exp);
+      }
+
+      async function logout() {
+        clearInterval(countdownTimer);
+        localStorage.removeItem(STORAGE_KEY);
+        try {
+          await window.phantom?.solana?.disconnect();
+        } catch (_) {
+          /* best effort */
+        }
+        signedInEl.hidden = true;
+        signedOutEl.hidden = false;
+        clearResult();
+        log("Logged out.", "step");
+      }
+
+      // On load: restore a stored token if it's still valid, confirming with the
+      // server via /auth/me (a locally-unexpired token could still be rejected).
+      async function restoreSession() {
+        const token = localStorage.getItem(STORAGE_KEY);
+        if (!token) return;
+        let claims;
+        try {
+          claims = decodeJwt(token);
+        } catch (_) {
+          localStorage.removeItem(STORAGE_KEY);
+          return;
+        }
+        if (!claims.exp || claims.exp * 1000 <= Date.now()) {
+          localStorage.removeItem(STORAGE_KEY);
+          log("Stored session had already expired.", "step");
+          return;
+        }
+        try {
+          const res = await fetch("/auth/me", {
+            headers: { Authorization: "Bearer " + token },
+          });
+          if (!res.ok) {
+            localStorage.removeItem(STORAGE_KEY);
+            log("Stored token rejected by server — cleared.", "step");
+            return;
+          }
+          const me = await res.json();
+          enterSignedIn(token, me.sub);
+          log("✓ Restored session from stored token: " + me.sub, "good");
+        } catch (err) {
+          log("Could not reach server to restore session: " + err.message, "bad");
+        }
+      }
+
+      // --- the full sign-in flow (also used for Re-authenticate) ---
+      async function signIn() {
+        logEl.textContent = "";
+        clearResult();
+        btn.disabled = true;
+        reauthBtn.disabled = true;
+
+        try {
+          // 1. Detect the provider
+          const provider = window.phantom?.solana;
+          if (!provider?.isPhantom) {
+            log("Phantom not detected.", "bad");
+            showResult(
+              "Phantom not found",
+              "Install it from https://phantom.com, create a wallet (no funds needed), then reload.",
+              "err",
+            );
+            return;
+          }
+          log("✓ Phantom detected", "good");
+
+          // 2. Connect — opens the real Phantom popup.
+          // Some browsers (notably Arc) don't auto-surface the extension popup;
+          // the request is queued behind the toolbar icon. If connect() hasn't
+          // resolved shortly, nudge the user to open Phantom manually.
+          log("→ Requesting connection… (approve the popup)");
+          const hintTimer = setTimeout(() => {
+            log(
+              "…no popup? Click the Phantom icon in your toolbar to approve, " +
+                "and make sure Phantom is unlocked.",
+              "step",
+            );
+          }, 2500);
+          let publicKey;
+          try {
+            ({ publicKey } = await provider.connect());
+          } finally {
+            clearTimeout(hintTimer);
+          }
+          const pk = publicKey.toString();
+          log("✓ Connected: " + pk, "good");
+
+          // 3. Ask our API for a nonce (returns a raw string)
+          log("→ POST /auth/nonce");
+          const nonceRes = await fetch("/auth/nonce", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ publicKey: pk }),
+          });
+          if (!nonceRes.ok) throw new Error("nonce request failed: " + nonceRes.status);
+          const nonce = await nonceRes.text();
+          log("✓ Nonce: " + nonce, "good");
+
+          // 4. Sign the exact nonce bytes for real
+          log("→ Requesting signature… (approve the popup)");
+          const { signature } = await provider.signMessage(
+            new TextEncoder().encode(nonce),
+            "utf8",
+          );
+          const sigB58 = base58Encode(signature);
+          log("✓ Signed (base58): " + sigB58, "good");
+
+          // 5. Verify — returns the raw JWT string, or 401
+          log("→ POST /auth/verify");
+          const verifyRes = await fetch("/auth/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ publicKey: pk, signature: sigB58 }),
+          });
+          if (!verifyRes.ok) {
+            const errText = await verifyRes.text();
+            throw new Error("verify failed (" + verifyRes.status + "): " + errText);
+          }
+          const jwt = await verifyRes.text();
+          log("✓ JWT received (stored in localStorage)", "good");
+
+          // 6. Confirm against the guarded route, then enter the signed-in state
+          log("→ GET /auth/me (Bearer token)");
+          const meRes = await fetch("/auth/me", {
+            headers: { Authorization: "Bearer " + jwt },
+          });
+          if (!meRes.ok) throw new Error("/auth/me failed: " + meRes.status);
+          const me = await meRes.json();
+          log("✓ /auth/me: " + JSON.stringify(me), "good");
+
+          enterSignedIn(jwt, me.sub);
+        } catch (err) {
+          log("✗ " + (err?.message || err), "bad");
+          showResult("Error", err?.message || String(err), "err");
+        } finally {
+          btn.disabled = false;
+          reauthBtn.disabled = false;
+        }
+      }
+
+      btn.addEventListener("click", signIn);
+      reauthBtn.addEventListener("click", signIn);
+      logoutBtn.addEventListener("click", logout);
+
+      // Restore any existing session on load.
+      restoreSession();
+    </script>
+  </body>
+</html>
