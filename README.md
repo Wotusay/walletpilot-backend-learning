@@ -88,6 +88,19 @@ Done when: `GET /auth/me` without a token returns 401; with a valid token from s
 Add your notes below and answer: what actually stops someone from replaying an *old* signature against `/auth/verify`? (Hint: it isn't the signature itself.)
 Done when: you've written that paragraph without looking it up.
 
+**6. Connect a real Phantom wallet (end-to-end) — added.**
+Assignment 3 was tested with a synthetic `tweetnacl` keypair, not an actual wallet — that proves the crypto works, but not that the flow works with the real thing. Close that gap:
+- Add a minimal static test page, `public/index.html`, plain JS, no framework. Serve it however's easiest (NestJS's `ServeStaticModule`, or just open the file directly).
+- Detect the provider: `const provider = window.phantom?.solana; if (!provider?.isPhantom) { /* prompt to install Phantom */ }`.
+- Connect: `const { publicKey } = await provider.connect();` — this opens the real Phantom popup and asks the user (you) to approve.
+- Call your own `POST /auth/nonce` with `publicKey.toString()`, then sign the returned message for real: `const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8');`
+- Base58-encode `signature` (Phantom returns raw bytes) and POST it to `/auth/verify`, exactly like your keypair test did.
+- Use the returned JWT against your guarded `GET /auth/me` route and render the result on the page.
+
+You'll need Phantom installed in your browser with at least one wallet created — a fresh one is fine, you're only signing a message, never sending a transaction, so it needs zero funds.
+
+Done when: you can click "Connect Phantom" in your actual browser, approve the real popup, sign the real message, and see your own public key come back from `/auth/me` — the complete loop with a real wallet, not a script.
+
 ## Notes
 What actually stops someone from replaying an *old* signature against `/auth/verify` is the nonce. Each time a user wants to log in, the server generates a new, unique nonce and sends it to the client. The client must sign this specific nonce with their private key. When the server receives the signed message, it checks if the nonce matches the one it generated for that public key. If someone tries to replay an old signature, the nonce will not match because it has already been used and removed from the server's memory. This ensures that each login attempt requires a fresh signature, preventing replay attacks.
 
@@ -107,6 +120,8 @@ Other things where familiar to me because i have used angular before. The decora
 - [QuickNode — Authenticate users with a Solana wallet](https://www.quicknode.com/guides/solana-development/dapps/how-to-authenticate-users-with-a-solana-wallet)
 - [RareSkills — Ed25519 Signature Verification in Solana](https://rareskills.io/post/solana-signature-verification)
 - [jwt.io — JSON Web Token Introduction](https://www.jwt.io/introduction)
+- [Phantom — Detecting the Provider](https://docs.phantom.com/solana/detecting-the-provider) (added)
+- [Phantom — Establishing a Connection](https://docs.phantom.com/solana/establishing-a-connection) (added)
 
 ### Video resources (watch in this order)
 
@@ -117,7 +132,7 @@ There isn't a solid dedicated video for the Solana signature-verification half o
 
 ### Next
 
-Once all five assignments are done, move this section into "Completed topics" below (like Topic 1), and update "Current step" to Topic 3.
+Once all six assignments are done (including the real Phantom wallet one), move this section into "Completed topics" below (like Topic 1), and update "Current step" to Topic 3 — which now also covers real portfolio data (SOL/SPL balances, tx history, live prices) and PostgreSQL persistence, expanded after a re-check against the original assignment brief.
 
 ## Completed topics
 
