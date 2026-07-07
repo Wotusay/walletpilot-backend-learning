@@ -18,90 +18,112 @@ Server runs on `http://localhost:3000`.
 Full plan: [`backend_learning_plan.md`](./backend_learning_plan.md). Matching GitHub issues: [`github_issues.md`](./github_issues.md).
 
 1. ✅ NestJS Architecture & Modules — [Issue #1](https://github.com/Wotusay/walletpilot-backend-learning/issues/1)
-2. Auth & JWT (Wallet Sign-In) — [Issue #2](https://github.com/Wotusay/walletpilot-backend-learning/issues/2) ← **you are here**
-3. Background Jobs & Redis Caching — [Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3)
+2. ✅ Auth & JWT (Wallet Sign-In) — [Issue #2](https://github.com/Wotusay/walletpilot-backend-learning/issues/2)
+3. Background Jobs & Redis Caching — [Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3) ← **you are here**
 4. AI Service Integration — [Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4)
 5. Testing & Documentation — [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5)
 
-## Current step: Topic 2 — Auth & JWT (Wallet Sign-In)
+## Current step: Topic 3 — Background Jobs & Redis Caching
 
 ### What's already here
 
-- Topic 1's modules, all wired: `WalletService.getBalance()` is implemented, `PortfolioModule` imports `WalletModule`, and `PortfolioService` injects `WalletService` to build a real summary.
-- `AuthModule`, `AuthController`, `AuthService` exist but are still a `ping` stub — nothing wallet- or token-related exists yet. That's this topic.
+- Topics 1 & 2 fully wired: real DI between `Wallet`/`Portfolio`, and a working wallet-signature auth flow (`/auth/nonce`, `/auth/verify`, `JwtGuard`, plus a real Phantom test page at `public/index.html`).
+- `WalletService.getBalance()` still returns `Math.floor(Math.random() * 1000)` — a fake balance.
+- `MarketDataService.getPrice()` still returns a hardcoded `{ symbol, price: 100 }`.
+- Nothing is scheduled, cached, or persisted yet. That's this topic — and per a re-check against the original assignment PDF, it now also covers the "Portfolio Retrieval" and "Market Data Integration" sections that weren't assigned to any topic before.
 
 Try it once it's running:
 ```bash
-curl http://localhost:3000/auth/ping
-curl http://localhost:3000/portfolio/abc123/summary
+curl http://localhost:3000/wallet/abc123/balance
+curl http://localhost:3000/market-data/price/SOL
 ```
 
-### How wallet sign-in works (read this first)
+### How real data + caching + persistence fit together (read this first)
 
-Traditional login is username + password: the server checks a hash in a database. WalletPilot has no passwords — the wallet's **private key is the identity**. Proving you own a wallet means proving you can produce a valid signature with that private key, without the private key ever leaving the wallet or touching your server.
+Right now every call to `getBalance()` or `getPrice()` is instant because it's fake. A real version calls a Solana RPC endpoint or a price API — both of which are rate-limited, sometimes slow, and in the RPC's case sometimes literally billed per call. You can't just call them on every single request. Three different mechanisms solve three different parts of that problem, and it's worth being clear on why you need all three rather than just one:
 
-That's a **challenge-response** flow, in five steps:
+1. **The real call itself** (Assignments 1–4 below): actually fetching the data from Solana / a price API. This is the ground truth, but it's the slow, rate-limited, occasionally-expensive path — you want to hit it as rarely as possible.
+2. **Redis cache (cache-aside pattern):** before calling the real API, check Redis. If the value's there and not expired (TTL), return it — no external call at all. If it's missing or expired, call the real API, store the result in Redis with a TTL, then return it. This is what makes repeated requests for the same wallet/token cheap.
+3. **Scheduled background job (`@nestjs/schedule`):** instead of only refreshing data reactively (when a user happens to ask), a cron job proactively refreshes the cache every N minutes. This means users usually hit a *warm* cache instead of being the unlucky first request after expiry that has to wait on the real API call.
+4. **PostgreSQL (durable, not a cache):** Redis is fast but disposable — once a value expires or Redis restarts, the old value is just gone, there's no history. A `portfolio_snapshots` table is different: every time the scheduled job runs, it writes a *new row*, so you build up a real history over time. That's what would power a "portfolio value over time" chart, and it's what Topic 4's AI service will eventually want for spotting trends — a cache literally cannot give you that, by design (it only ever holds "now").
 
-1. **Client asks for a challenge.** `POST /auth/nonce { publicKey }` → the server generates a random, single-use nonce, remembers it against that public key, and returns a message that embeds it (e.g. `"Sign this message to log in to WalletPilot: <nonce>"`).
-2. **The wallet signs the challenge.** Phantom signs that *exact* message with the user's private key. This produces a signature — it proves control of the key without ever exposing it.
-3. **Client sends proof.** `POST /auth/verify { publicKey, signature }` → the server looks up the nonce it issued for that public key and reconstructs the identical message string.
-4. **The server trusts math, not the client.** Signature verification (`nacl.sign.detached.verify(message, signature, publicKey)`) is a pure function: it returns `true` only if that exact keypair produced that exact signature for that exact message. There's nothing to fake here — either the math checks out or it doesn't.
-5. **The server issues a JWT.** From here it's ordinary token auth: the JWT is proof "the server already checked this identity once," so protected routes just verify the *token's* signature (signed with the server's own secret) instead of re-checking a wallet signature on every request.
-
-**Why the nonce matters:** without it, a signature is just a fixed blob — if it ever leaked (logs, a proxy, a malicious frontend), anyone could replay it forever to "log in" as that wallet. A fresh, server-generated, single-use nonce means every login needs a signature the server has never seen before, tied to that one attempt.
-
-**Why Ed25519 specifically:** Solana keypairs use Ed25519 (not the ECDSA/secp256k1 curve Ethereum and Bitcoin use) — that's why verification goes through `tweetnacl` (`nacl.sign.detached.verify`) rather than an Ethereum-style `verifyMessage` helper.
+In short: **cache = fast answer to "what is it right now," DB = durable answer to "what was it at each point in time."** Different jobs, different tools, both real requirements from the original brief.
 
 ### Assignments
 
-Do these in order. Don't move to Topic 3 until you can explain the "Done when" for each.
+Do these in order. Don't move to Topic 4 until you can explain the "Done when" for each.
 
 **1. Install what you need.**
 ```bash
-npm install @nestjs/jwt @nestjs/passport passport passport-jwt tweetnacl bs58
-npm install -D @types/passport-jwt
+npm install @solana/web3.js @nestjs/schedule @nestjs/cache-manager cache-manager @keyv/redis @nestjs/typeorm typeorm pg
 ```
 Done when: `npm run start:dev` still boots cleanly with these installed but unused.
 
-**2. Build the nonce endpoint.**
-In `src/auth/`, add a `POST /auth/nonce` route (body: `{ publicKey: string }`). In `AuthService`, generate a nonce (`crypto.randomUUID()` is fine), store it against that `publicKey` in a plain in-memory `Map` — a real app would put this in Redis, but that's Topic 3, don't reach for it yet — and return the message string to sign.
-Done when: calling it twice for the same `publicKey` returns two different messages (proves it's actually generating a fresh nonce, not a static string).
+**2. Fetch a real SOL balance.**
+In `WalletService`, replace the hardcoded random balance: open a `Connection` (devnet, or a public mainnet-beta RPC) and call `connection.getBalance(new PublicKey(address))`. Note the result is in **lamports** — divide by `LAMPORTS_PER_SOL` to get SOL.
+Done when: calling it with a real devnet address (e.g. one you airdrop devnet SOL to) returns the actual balance, and an invalid address throws a clear error instead of crashing.
 
-**3. Build the verify endpoint — the core exercise.**
-Add `POST /auth/verify` (body: `{ publicKey: string, signature: string }`, signature as base58 — that's the format Phantom's `signMessage` returns). In `AuthService`:
-- Look up the stored nonce/message for that `publicKey`. Missing or expired → throw `UnauthorizedException`.
-- Rebuild the exact message bytes with `new TextEncoder().encode(message)`.
-- Decode `publicKey` and `signature` from base58 with `bs58.decode(...)`.
-- Verify with `nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes)`.
-- On success: delete the nonce (single-use!) and return a JWT via `jwtService.sign({ sub: publicKey })`. On failure: `UnauthorizedException`.
+**3. Fetch real SPL token balances and transaction history.**
+Still in `WalletService`: use `connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID })` to list SPL token holdings (`{ mint, amount, decimals }`), and `connection.getSignaturesForAddress(publicKey, { limit: 10 })` for recent transaction signatures.
+Done when: a wallet holding at least one SPL token (e.g. a devnet USDC-like test token) shows up in the token list, and the signatures list is non-empty for an address with any transaction history.
 
-You don't need a real Phantom wallet to test this — generate a keypair with `nacl.sign.keyPair()` in a scratch script, sign your message with `nacl.sign.detached()`, and call your own endpoint with the result. This is exactly how you'll unit-test `AuthService` in Topic 5.
-Done when: a signature from the *correct* keypair returns a JWT, and a tampered signature (flip one character) returns 401.
+**4. Fetch a real market price.**
+In `MarketDataService`, replace the hardcoded `{ symbol, price: 100 }` with a real call to a public price API (Jupiter Price API or CoinGecko both work without an API key for basic use).
+Done when: `curl .../market-data/price/SOL` returns a price that actually moves over time, not a constant.
 
-**4. Protect a route with a JWT guard.**
-- Register `JwtModule` in `AuthModule` — `JwtModule.register({ secret: ..., signOptions: { expiresIn: '1h' } })`. Put the secret in an env var, not a hardcoded string.
-- Add a `JwtStrategy` (extends `PassportStrategy(Strategy)` from `passport-jwt`) that extracts and validates the Bearer token.
-- Add a `JwtAuthGuard` (extends `AuthGuard('jwt')`) and apply it with `@UseGuards(JwtAuthGuard)` to a new `GET /auth/me` route that returns `req.user`.
-Done when: `GET /auth/me` without a token returns 401; with a valid token from step 3, it returns the public key back.
+**5. Add the scheduled refresh job.**
+Import `ScheduleModule.forRoot()` in `AppModule`. Add a method decorated with `@Cron(CronExpression.EVERY_MINUTE)` (or `@Interval(60000)`) somewhere sensible (e.g. a new `RefreshService`) that calls your real `getBalance`/`getPrice` methods for a fixed test address, just to prove the schedule fires.
+Done when: your logs show the job actually running on its own, without you calling any endpoint.
 
-**5. Explain it in your own words.**
-Add your notes below and answer: what actually stops someone from replaying an *old* signature against `/auth/verify`? (Hint: it isn't the signature itself.)
+**6. Wire in Redis caching (cache-aside).**
+Register `CacheModule.registerAsync(...)` with the Redis `@keyv/redis` store. In `WalletService`/`MarketDataService`, check the cache first; on a miss, call the real source, then `cache.set(key, value, ttl)`.
+Done when: you can see (via logs) a cache **miss** on the first call for an address/symbol and a cache **hit** on the second call within the TTL window — and you can explain why the *scheduled job* from step 5 makes cold-cache misses rarer in practice.
+
+**7. Persist portfolio snapshots to PostgreSQL.**
+Add `TypeOrmModule.forRoot(...)` (or `forRootAsync` with `ConfigService`, matching how you already did `JwtModule`). Define a `PortfolioSnapshot` entity: `id`, `address`, `totalValue`, `holdings` (jsonb), `createdAt`. Have the scheduled job from step 5 save one row each time it runs.
+Done when: after the job has run at least twice, a `SELECT * FROM portfolio_snapshot` shows more than one row for the same address, each with a different `createdAt`.
+
+**8. Add Redis and Postgres to Docker Compose.**
+Write (or extend) a `docker-compose.yml` with `redis` and `postgres` services, matching the connection details your app expects via env vars.
+Done when: `docker compose up` gives you a working Redis + Postgres your app can connect to, without installing either locally.
+
+**9. Explain it in your own words.**
+Add your notes below and answer: if the scheduled job already refreshes the cache every minute, why do you still need the cache-aside check-first logic in the service at all — what breaks if you remove it and only rely on the schedule?
 Done when: you've written that paragraph without looking it up.
 
-**6. Connect a real Phantom wallet (end-to-end) — added.**
-Assignment 3 was tested with a synthetic `tweetnacl` keypair, not an actual wallet — that proves the crypto works, but not that the flow works with the real thing. Close that gap:
-- Add a minimal static test page, `public/index.html`, plain JS, no framework. Serve it however's easiest (NestJS's `ServeStaticModule`, or just open the file directly).
-- Detect the provider: `const provider = window.phantom?.solana; if (!provider?.isPhantom) { /* prompt to install Phantom */ }`.
-- Connect: `const { publicKey } = await provider.connect();` — this opens the real Phantom popup and asks the user (you) to approve.
-- Call your own `POST /auth/nonce` with `publicKey.toString()`, then sign the returned message for real: `const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8');`
-- Base58-encode `signature` (Phantom returns raw bytes) and POST it to `/auth/verify`, exactly like your keypair test did.
-- Use the returned JWT against your guarded `GET /auth/me` route and render the result on the page.
-
-You'll need Phantom installed in your browser with at least one wallet created — a fresh one is fine, you're only signing a message, never sending a transaction, so it needs zero funds.
-
-Done when: you can click "Connect Phantom" in your actual browser, approve the real popup, sign the real message, and see your own public key come back from `/auth/me` — the complete loop with a real wallet, not a script.
-
 ## Notes
+
+_(fill this in once you've done the assignments — same as Topics 1 & 2)_
+
+### Documentation
+
+- [NestJS — Task Scheduling](https://docs.nestjs.com/techniques/task-scheduling)
+- [NestJS — Caching](https://docs.nestjs.com/techniques/caching)
+- [NestJS — SQL (TypeORM) recipe](https://docs.nestjs.com/recipes/sql-typeorm)
+- [Redis — EXPIRE / TTL](https://redis.io/docs/latest/commands/expire/)
+- [Solana Cookbook — How to Get Account Balance](https://solana.com/developers/cookbook/accounts/get-account-balance)
+- [Solana Cookbook — How to Get All Token Accounts by Authority](https://solana.com/developers/cookbook/tokens/get-all-token-accounts)
+- [Solana Docs — getSignaturesForAddress](https://solana.com/docs/rpc/http/getsignaturesforaddress)
+
+### Video resources (watch in this order)
+
+1. [Nest.js Caching Tutorial in 15 Minutes (Redis + Unit Testing)](https://www.youtube.com/watch?v=KXnkhWRCj40) — closest to Assignment 6.
+2. [NestJS + PostgreSQL + TypeORM](https://www.youtube.com/watch?v=2HfGdpr4PPg) — closest to Assignment 7.
+
+There isn't a strong dedicated video for `@nestjs/schedule` cron jobs or for the Solana `web3.js` balance/token calls specifically — both are simple enough that the official docs (linked above) and the QuickNode/Solana Cookbook guides cover it better than the video content that's out there. Worth reading those directly for Assignments 2, 3, and 5 rather than hunting for a mediocre video.
+
+### Next
+
+Once all nine assignments are done, move this section into "Completed topics" below, and update "Current step" to Topic 4 — Asset Normalization (added) + AI Service Integration.
+
+## Completed topics
+
+### Topic 2 — Auth & JWT (Wallet Sign-In) ✅
+
+[Issue #2](https://github.com/Wotusay/walletpilot-backend-learning/issues/2) · nonce-based challenge/response, Ed25519 signature verification with `tweetnacl`/`bs58`, JWT issuing via `@nestjs/jwt`, a `JwtStrategy`/`JwtGuard` protecting `GET /auth/me`, and a real Phantom wallet test page (`public/index.html`) closing the loop end-to-end — not just a scripted keypair.
+
+**Notes:**
+
 What actually stops someone from replaying an *old* signature against `/auth/verify` is the nonce. Each time a user wants to log in, the server generates a new, unique nonce and sends it to the client. The client must sign this specific nonce with their private key. When the server receives the signed message, it checks if the nonce matches the one it generated for that public key. If someone tries to replay an old signature, the nonce will not match because it has already been used and removed from the server's memory. This ensures that each login attempt requires a fresh signature, preventing replay attacks.
 
 What was hard for me was using the `nacl` library to verify the signature. I had to make sure that I was encoding the message correctly and decoding the public key and signature from base58. It took some trial and error to get it right, but once I understood how to use the library, it became much easier.
@@ -110,31 +132,7 @@ A new term i learned was the using strategy pattern in nestjs. The strategy patt
 
 Other things where familiar to me because i have used angular before. The decorators and dependency injection are very similar to angular. The main difference is that nestjs is a backend framework, while angular is a frontend framework. But the concepts are very similar.
 
-### Documentation
-
-- [NestJS — Authentication](https://docs.nestjs.com/security/authentication)
-- [NestJS — Passport recipe](https://docs.nestjs.com/recipes/passport)
-- [Phantom — Sign In With Solana](https://phantom.com/learn/developers/sign-in-with-solana)
-- [Phantom — Signing a Message](https://docs.phantom.com/solana/signing-a-message)
-- [Solana Cookbook — Sign & Verify a Message](https://solana.com/developers/cookbook/wallets/sign-message)
-- [QuickNode — Authenticate users with a Solana wallet](https://www.quicknode.com/guides/solana-development/dapps/how-to-authenticate-users-with-a-solana-wallet)
-- [RareSkills — Ed25519 Signature Verification in Solana](https://rareskills.io/post/solana-signature-verification)
-- [jwt.io — JSON Web Token Introduction](https://www.jwt.io/introduction)
-- [Phantom — Detecting the Provider](https://docs.phantom.com/solana/detecting-the-provider) (added)
-- [Phantom — Establishing a Connection](https://docs.phantom.com/solana/establishing-a-connection) (added)
-
-### Video resources (watch in this order)
-
-1. [What Is JWT and Why Should You Use JWT](https://www.youtube.com/watch?v=7Q17ubqLfaM) — watch first, before touching code: what a JWT actually is and why stateless auth uses it.
-2. [NestJS JWT Authentication Tutorial](https://www.youtube.com/watch?v=EFDUvzJT_wI) — practical Nest + Passport + guards implementation, closest to Assignment 4.
-
-There isn't a solid dedicated video for the Solana signature-verification half of this topic — it's a narrower niche than general JWT auth. Use the QuickNode guide and Solana Cookbook link above for that part instead; they walk through the exact `nacl`/`bs58` calls Assignment 3 needs.
-
-### Next
-
-Once all six assignments are done (including the real Phantom wallet one), move this section into "Completed topics" below (like Topic 1), and update "Current step" to Topic 3 — which now also covers real portfolio data (SOL/SPL balances, tx history, live prices) and PostgreSQL persistence, expanded after a re-check against the original assignment brief.
-
-## Completed topics
+Documentation and videos used: [NestJS — Authentication](https://docs.nestjs.com/security/authentication), [Passport recipe](https://docs.nestjs.com/recipes/passport), [Phantom — Sign In With Solana](https://phantom.com/learn/developers/sign-in-with-solana), [Signing a Message](https://docs.phantom.com/solana/signing-a-message), [Detecting the Provider](https://docs.phantom.com/solana/detecting-the-provider), [Establishing a Connection](https://docs.phantom.com/solana/establishing-a-connection), [Solana Cookbook — Sign & Verify a Message](https://solana.com/developers/cookbook/wallets/sign-message); [What Is JWT and Why Should You Use JWT](https://www.youtube.com/watch?v=7Q17ubqLfaM), [NestJS JWT Authentication Tutorial](https://www.youtube.com/watch?v=EFDUvzJT_wI).
 
 ### Topic 1 — NestJS Architecture & Modules ✅
 
