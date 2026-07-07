@@ -108,7 +108,7 @@ _(fill this in once you've done the assignments — same as Topics 1 & 2)_
 ### Video resources (watch in this order)
 
 1. [Nest.js Caching Tutorial in 15 Minutes (Redis + Unit Testing)](https://www.youtube.com/watch?v=KXnkhWRCj40) — closest to Assignment 6.
-2. [NestJS + PostgreSQL + TypeORM](https://www.youtube.com/watch?v=2HfGdpr4PPg) — closest to Assignment 7.
+2. [NestJS + PostgreSQL + TypeORM](https://youtu.be/W1gvIw0GNl8) — closest to Assignment 7.
 
 There isn't a strong dedicated video for `@nestjs/schedule` cron jobs or for the Solana `web3.js` balance/token calls specifically — both are simple enough that the official docs (linked above) and the QuickNode/Solana Cookbook guides cover it better than the video content that's out there. Worth reading those directly for Assignments 2, 3, and 5 rather than hunting for a mediocre video.
 
