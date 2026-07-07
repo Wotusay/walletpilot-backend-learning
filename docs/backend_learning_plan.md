@@ -29,6 +29,8 @@ Order: architecture first (you need the skeleton before anything else fits into 
 
 **Done when:** you can hit `/auth/nonce`, sign it with a test keypair, verify it, and get back a working JWT that a guard accepts.
 
+**Expanded (added):** the keypair test proves the crypto works, not that the flow works with a real wallet. Added assignment: build a minimal static test page that connects to the actual Phantom browser extension (`window.phantom.solana.connect()`), signs the nonce for real (`provider.signMessage()`), and completes the whole `nonce → sign → verify → JWT` loop end-to-end. See [Issue #2](https://github.com/Wotusay/walletpilot-backend-learning/issues/2) and the README for the full walkthrough.
+
 ## 3. Background Jobs & Redis Caching
 
 **Concepts:** `@nestjs/schedule` cron jobs, `@nestjs/cache-manager` + Redis, cache-aside pattern, avoiding redundant external calls.
@@ -42,6 +44,8 @@ Order: architecture first (you need the skeleton before anything else fits into 
 
 **Done when:** you can show a cache hit vs. miss in logs, and explain why background refresh + caching matters for rate-limited blockchain/price APIs.
 
+**Expanded (added, re-checked against the original assignment brief):** the original PDF's "Portfolio Retrieval" (real SOL/SPL balances, token metadata, tx history) and "Market Data Integration" (live prices) sections weren't covered by any of the five topics — the wallet/market-data services were still mock stubs. Added to this topic, before the caching work: real balance retrieval via `@solana/web3.js` (`connection.getBalance`, `getParsedTokenAccountsByOwner`, `getSignaturesForAddress`), a real price API call in `MarketDataService`, and PostgreSQL persistence of portfolio snapshots (also a named technical requirement in the brief that wasn't assigned anywhere) — plus a `postgres` service in Docker Compose alongside `redis`. See [Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3).
+
 ## 4. AI Service Integration
 
 **Concepts:** isolating an external AI provider behind a service, prompting for structured JSON output, schema validation of LLM responses, keeping the AI boundary (data in, JSON out — no direct API access for the AI).
@@ -53,6 +57,8 @@ Order: architecture first (you need the skeleton before anything else fits into 
 - `zod` or `class-validator` for response validation
 
 **Done when:** the service reliably returns valid, schema-conformant JSON (handle and retry on malformed output).
+
+**Expanded (added, re-checked against the original assignment brief):** the brief's "Asset Normalization" section (classify assets as Crypto/Stablecoin/Tokenized Equity/NFT, unify into one portfolio model) wasn't covered anywhere either, and the AI step needs that normalized data as real input instead of a hardcoded object. Added as a prerequisite: an `AssetType` classifier, a shared `PortfolioAsset` shape, and portfolio-level metrics (total USD value, allocation %) computed from the real prices in Topic 3. See [Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4).
 
 ## 5. Testing & Documentation
 
@@ -66,6 +72,8 @@ Order: architecture first (you need the skeleton before anything else fits into 
 - Scalar docs: NestJS integration (`@scalar/nestjs-api-reference`)
 
 **Done when:** `npm run test` passes for both services, and `/reference` (Scalar API reference) shows the documented auth endpoints, generated from the OpenAPI spec.
+
+**Expanded (added):** a `docker-compose.yml` bringing up the app, Redis, and PostgreSQL together, plus a `GET /health` route (or `@nestjs/terminus`) confirming all three are up — the "run this whole real app with one command" check. See [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5).
 
 ---
 
