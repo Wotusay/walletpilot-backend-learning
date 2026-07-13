@@ -1,0 +1,14 @@
+services:
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+  postgres:
+    image: postgres:16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: walletpilot
+      POSTGRES_PASSWORD: walletpilot
+      POSTGRES_DB: walletpilot
+    volumes: ["pgdata:/var/lib/postgres/data"]
+volumes:
+  pgdata:
