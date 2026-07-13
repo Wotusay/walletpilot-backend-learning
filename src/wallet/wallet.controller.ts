@@ -9,13 +9,18 @@ export class WalletController {
   // route here once WalletService.getBalance() exists.
   constructor(private readonly walletService: WalletService) {}
 
-  @Get("ping")
-  ping() {
-    return this.walletService.ping();
-  }
-
   @Get(":address/balance")
   getBalance(@Param("address") address: string) {
     return this.walletService.getBalance(address);
+  }
+
+  @Get(":address/tokens")
+  getTokens(@Param("address") address: string) {
+    return this.walletService.getTokenBalances(address);
+  }
+
+  @Get(":address/transactions")
+  getTransactions(@Param("address") address: string) {
+    return this.walletService.getTransactionsHistory(address);
   }
 }
