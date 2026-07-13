@@ -5,11 +5,6 @@ import { MarketDataService } from "./market-data.service";
 export class MarketDataController {
   constructor(private readonly marketdataService: MarketDataService) {}
 
-  @Get("ping")
-  ping() {
-    return this.marketdataService.ping();
-  }
-
   @Get("price/:symbol")
   getPrice(@Param("symbol") symbol: string) {
     return this.marketdataService.getPrice(symbol);
