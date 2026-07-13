@@ -14,11 +14,11 @@ export class PortfolioService {
 
   constructor(private readonly walletService: WalletService) {}
 
-  getSummary(address: string) {
+  async getSummary(address: string) {
+    const wallet = await this.walletService.getBalance(address);
     return {
       address,
-      // TODO: replace this hardcoded value by calling walletService.getBalance(address)
-      walletBalance: this.walletService.getBalance(address).balance,
+      walletBalance: wallet.balance,
       holdings: [],
     };
   }
