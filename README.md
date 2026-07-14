@@ -93,7 +93,16 @@ Done when: you've written that paragraph without looking it up.
 
 ## Notes
 
-_(fill this in once you've done the assignments — same as Topics 1 & 2)_
+If the scheduled job already refreshes the cache every minute, why do you still need the cache-aside check-first logic in the service at all — what breaks if you remove it and only rely on the schedule?
+
+The scheduled job is an optimization (keeps latency low and data warm), while cache-aside is the correctness guarantee (every request can still get data even on a miss). Remove the check-first logic and you've made request-serving a hard dependency on the scheduler being perfectly reliable and complete — the first request after boot, any evicted or expired key, any un-scheduled key, and any scheduler downtime would all break.
+
+Things i found out when doing this topic:
+- The `@nestjs/schedule` module is a wrapper around the `node-cron` library, which allows you to schedule tasks using cron expressions. It provides decorators like `@Cron`, `@Interval`, and `@Timeout` to define scheduled tasks in your services.
+- The `@nestjs/cache-manager` module is a wrapper around the `cache-manager` library, which provides a consistent API for caching data in memory or in external stores like Redis. It allows you to easily set up caching in your NestJS application and provides decorators like `@Cacheable` and `@CacheEvict` to manage cache entries.
+- You had to run the Redis and PostgreSQL services in Docker Compose to have a working environment for caching and persistence. The `docker-compose.yml` file defines the services, their images, ports, and environment variables needed for the application to connect to them. You could run them locally without installing them directly on your machine, which is convenient for development and testing.
+- Some topics where to vaguely described in the assignment PDF, but the official docs and the Solana Cookbook provided clear guidance on how to implement them. For example, the Solana Cookbook has a section on how to get account balances and token accounts by authority, which was helpful for implementing the `WalletService` methods.
+
 
 ### Documentation
 
