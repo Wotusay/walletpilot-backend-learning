@@ -19,79 +19,95 @@ Full plan: [`backend_learning_plan.md`](./backend_learning_plan.md). Matching Gi
 
 1. ✅ NestJS Architecture & Modules — [Issue #1](https://github.com/Wotusay/walletpilot-backend-learning/issues/1)
 2. ✅ Auth & JWT (Wallet Sign-In) — [Issue #2](https://github.com/Wotusay/walletpilot-backend-learning/issues/2)
-3. Background Jobs & Redis Caching — [Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3) ← **you are here**
-4. AI Service Integration — [Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4)
+3. ✅ Background Jobs & Redis Caching — [Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3)
+4. AI Service Integration — [Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4) ← **you are here**
 5. Testing & Documentation — [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5)
 
-## Current step: Topic 3 — Background Jobs & Redis Caching
+## Current step: Topic 4 — Asset Normalization + AI Service Integration
 
 ### What's already here
 
-- Topics 1 & 2 fully wired: real DI between `Wallet`/`Portfolio`, and a working wallet-signature auth flow (`/auth/nonce`, `/auth/verify`, `JwtGuard`, plus a real Phantom test page at `public/index.html`).
-- `WalletService.getBalance()` still returns `Math.floor(Math.random() * 1000)` — a fake balance.
-- `MarketDataService.getPrice()` still returns a hardcoded `{ symbol, price: 100 }`.
-- Nothing is scheduled, cached, or persisted yet. That's this topic — and per a re-check against the original assignment PDF, it now also covers the "Portfolio Retrieval" and "Market Data Integration" sections that weren't assigned to any topic before.
+- Topics 1–3 fully wired: real DI, a working wallet-signature auth flow, and real portfolio data — `WalletService` hits Solana devnet for balance/tokens/tx history, `MarketDataService` hits CoinGecko for prices, both cached via `CACHE_MANAGER` with a TTL, refreshed on a schedule by `RefreshService`, and persisted to Postgres as `PortfolioSnapshot` rows.
+- `PortfolioService.getSummary()` still returns `holdings: []` — nothing classifies or normalizes what's actually in a wallet yet.
+- `AIService`/`AiModule` are still `ping` stubs — no AI call exists yet. That's this topic.
 
 Try it once it's running:
 ```bash
-curl http://localhost:3000/wallet/abc123/balance
-curl http://localhost:3000/market-data/price/SOL
+curl http://localhost:3000/portfolio/abc123/summary
+curl http://localhost:3000/ai/ping
 ```
 
-### How real data + caching + persistence fit together (read this first)
+### Why normalize before calling the AI, and why the AI can't touch the chain itself (read this first)
 
-Right now every call to `getBalance()` or `getPrice()` is instant because it's fake. A real version calls a Solana RPC endpoint or a price API — both of which are rate-limited, sometimes slow, and in the RPC's case sometimes literally billed per call. You can't just call them on every single request. Three different mechanisms solve three different parts of that problem, and it's worth being clear on why you need all three rather than just one:
+The original brief is explicit about two things for this part: the AI receives *structured portfolio data* and returns *structured JSON*, and **"the AI must not query blockchain APIs directly."** Both of those are about the same idea — keeping a hard boundary between "fetching/shaping data" and "reasoning about data":
 
-1. **The real call itself** (Assignments 1–4 below): actually fetching the data from Solana / a price API. This is the ground truth, but it's the slow, rate-limited, occasionally-expensive path — you want to hit it as rarely as possible.
-2. **Redis cache (cache-aside pattern):** before calling the real API, check Redis. If the value's there and not expired (TTL), return it — no external call at all. If it's missing or expired, call the real API, store the result in Redis with a TTL, then return it. This is what makes repeated requests for the same wallet/token cheap.
-3. **Scheduled background job (`@nestjs/schedule`):** instead of only refreshing data reactively (when a user happens to ask), a cron job proactively refreshes the cache every N minutes. This means users usually hit a *warm* cache instead of being the unlucky first request after expiry that has to wait on the real API call.
-4. **PostgreSQL (durable, not a cache):** Redis is fast but disposable — once a value expires or Redis restarts, the old value is just gone, there's no history. A `portfolio_snapshots` table is different: every time the scheduled job runs, it writes a *new row*, so you build up a real history over time. That's what would power a "portfolio value over time" chart, and it's what Topic 4's AI service will eventually want for spotting trends — a cache literally cannot give you that, by design (it only ever holds "now").
-
-In short: **cache = fast answer to "what is it right now," DB = durable answer to "what was it at each point in time."** Different jobs, different tools, both real requirements from the original brief.
+- **Normalization first.** Right now a wallet's holdings are three different shapes: a SOL balance (a number), SPL token accounts (`{ mint, tokenAmount, decimals }`), and eventually tokenized stocks. An LLM prompt is far more reliable when every holding looks the same going in — one `PortfolioAsset` shape (`{ symbol, type, amount, usdValue }`) regardless of where it came from. You already have the real prices (Topic 3) to compute `usdValue` and allocation %.
+- **Classification matters for the analysis itself.** "Risk level" and "diversification" are meaningless without knowing *what kind* of asset each holding is — 100% in one memecoin is a very different risk profile than 100% in a stablecoin, even though both are "100% one asset."
+- **Why the AI never touches the chain:** if `AIService` could call Solana/CoinGecko itself, you'd lose the guarantee that its output is reproducible and testable (the same normalized input should produce a comparable analysis), you'd be handing an LLM prompt injection surface directly onto live infrastructure, and you couldn't unit-test it without hitting real APIs. Feeding it a plain object keeps the AI a pure function: structured data in, structured JSON out — nothing else.
+- **Why the output needs a schema, not just "please return JSON":** LLMs are good at approximately following formatting instructions and bad at *guaranteeing* them — a stray sentence before the JSON, a missing field, a health score returned as a string instead of a number will all break a naive `JSON.parse`. Validating the response against a schema (`zod`) is what turns "usually valid JSON" into "guaranteed-valid JSON or a clear error you can retry on."
 
 ### Assignments
 
-Do these in order. Don't move to Topic 4 until you can explain the "Done when" for each.
+Do these in order. Don't move to Topic 5 until you can explain the "Done when" for each.
 
 **1. Install what you need.**
 ```bash
-npm install @solana/web3.js @nestjs/schedule @nestjs/cache-manager cache-manager @keyv/redis @nestjs/typeorm typeorm pg
+npm install zod @anthropic-ai/sdk
 ```
 Done when: `npm run start:dev` still boots cleanly with these installed but unused.
 
-**2. Fetch a real SOL balance.**
-In `WalletService`, replace the hardcoded random balance: open a `Connection` (devnet, or a public mainnet-beta RPC) and call `connection.getBalance(new PublicKey(address))`. Note the result is in **lamports** — divide by `LAMPORTS_PER_SOL` to get SOL.
-Done when: calling it with a real devnet address (e.g. one you airdrop devnet SOL to) returns the actual balance, and an invalid address throws a clear error instead of crashing.
+**2. Classify assets.**
+Define an `AssetType` (`'Crypto' | 'Stablecoin' | 'TokenizedEquity' | 'NFT'`). Write a classifier function: a small lookup table of known stablecoin mint addresses (e.g. devnet/mainnet USDC) → `Stablecoin`, everything else → `Crypto` for now (tokenized equity/NFT can stay unimplemented stubs — the brief marks NFT optional).
+Done when: a stablecoin mint classifies as `Stablecoin` and native SOL classifies as `Crypto`.
 
-**3. Fetch real SPL token balances and transaction history.**
-Still in `WalletService`: use `connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID })` to list SPL token holdings (`{ mint, amount, decimals }`), and `connection.getSignaturesForAddress(publicKey, { limit: 10 })` for recent transaction signatures.
-Done when: a wallet holding at least one SPL token (e.g. a devnet USDC-like test token) shows up in the token list, and the signatures list is non-empty for an address with any transaction history.
+**3. Normalize into one shape.**
+Write a function that takes the raw outputs from `WalletService` (SOL balance, SPL tokens) and `MarketDataService` (prices) and returns `PortfolioAsset[]`: `{ symbol, type, amount, usdValue }` for every holding, using the real prices from Topic 3 to compute `usdValue`.
+Done when: calling it for a wallet with SOL + at least one token returns an array where every item has the same shape, regardless of whether it came from the native balance or an SPL account.
 
-**4. Fetch a real market price.**
-In `MarketDataService`, replace the hardcoded `{ symbol, price: 100 }` with a real call to a public price API (Jupiter Price API or CoinGecko both work without an API key for basic use).
-Done when: `curl .../market-data/price/SOL` returns a price that actually moves over time, not a constant.
+**4. Compute portfolio-level metrics.**
+From the normalized array: total USD value (sum of `usdValue`), and allocation % per asset and per `AssetType`.
+Done when: for a test portfolio, the allocation percentages you compute sum to ~100% (floating point, so "close enough" is fine).
 
-**5. Add the scheduled refresh job.**
-Import `ScheduleModule.forRoot()` in `AppModule`. Add a method decorated with `@Cron(CronExpression.EVERY_MINUTE)` (or `@Interval(60000)`) somewhere sensible (e.g. a new `RefreshService`) that calls your real `getBalance`/`getPrice` methods for a fixed test address, just to prove the schedule fires.
-Done when: your logs show the job actually running on its own, without you calling any endpoint.
+**5. Build `AIService` around the normalized data.**
+`AIService.analyze(portfolio: PortfolioAsset[])` builds a prompt describing the normalized portfolio + metrics, and asks Claude for exactly the JSON shape from the brief: executive summary, portfolio health score (0–100), risk level, diversification analysis, observations, potential risks, trading behavior. Use Claude's structured outputs (`output_format`) or tool-use-forced-JSON so the shape is enforced at the API layer, not just prompted for.
+Done when: a call with a real normalized portfolio returns a response containing all seven fields.
 
-**6. Wire in Redis caching (cache-aside).**
-Register `CacheModule.registerAsync(...)` with the Redis `@keyv/redis` store. In `WalletService`/`MarketDataService`, check the cache first; on a miss, call the real source, then `cache.set(key, value, ttl)`.
-Done when: you can see (via logs) a cache **miss** on the first call for an address/symbol and a cache **hit** on the second call within the TTL window — and you can explain why the *scheduled job* from step 5 makes cold-cache misses rarer in practice.
+**6. Validate the response with `zod`.**
+Define a `zod` schema matching that exact shape and parse the AI's response through it before returning it from `AIService`. On a parse failure, retry the call once (e.g. with a follow-up message pointing out the schema was violated) before throwing.
+Done when: you can simulate a malformed response (temporarily returning bad data) and see the retry/error path actually trigger, not just the happy path.
 
-**7. Persist portfolio snapshots to PostgreSQL.**
-Add `TypeOrmModule.forRoot(...)` (or `forRootAsync` with `ConfigService`, matching how you already did `JwtModule`). Define a `PortfolioSnapshot` entity: `id`, `address`, `totalValue`, `holdings` (jsonb), `createdAt`. Have the scheduled job from step 5 save one row each time it runs.
-Done when: after the job has run at least twice, a `SELECT * FROM portfolio_snapshot` shows more than one row for the same address, each with a different `createdAt`.
-
-**8. Add Redis and Postgres to Docker Compose.**
-Write (or extend) a `docker-compose.yml` with `redis` and `postgres` services, matching the connection details your app expects via env vars.
-Done when: `docker compose up` gives you a working Redis + Postgres your app can connect to, without installing either locally.
-
-**9. Explain it in your own words.**
-Add your notes below and answer: if the scheduled job already refreshes the cache every minute, why do you still need the cache-aside check-first logic in the service at all — what breaks if you remove it and only rely on the schedule?
+**7. Explain it in your own words.**
+Add your notes below and answer: what's the difference between "the AI decided the risk is high" being wrong because the AI reasoned badly, versus being wrong because the *input data* it received was already wrong — and which one does normalization protect you from?
 Done when: you've written that paragraph without looking it up.
 
 ## Notes
+
+_(fill this in once you've done the assignments — same as Topics 1–3)_
+
+### Documentation
+
+- [Claude API – Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)
+- [Claude API – Intro](https://platform.claude.com/docs/en/intro)
+- [Zod](https://zod.dev/)
+
+### Video resources (watch in this order)
+
+1. [Claude API: Strict Response Types/Schemas (for Dummies)](https://www.youtube.com/watch?v=kiooXcT4E0g) — closest to Assignment 5.
+2. [Zod Tutorial: Auto-Generate Schemas & Validate API Responses in TypeScript](https://www.youtube.com/watch?v=siQfpESFOhI) — closest to Assignment 6.
+
+No dedicated video for the asset-classification/normalization step (Assignments 2–4) — it's plain TypeScript, not a specific library or API, so there's nothing to link beyond just writing it directly from the "read this first" explanation above.
+
+### Next
+
+Once all seven assignments are done, move this section into "Completed topics" below, and update "Current step" to Topic 5 — Testing & Documentation (now also covering the full Docker Compose stack + health check).
+
+## Completed topics
+
+### Topic 3 — Background Jobs & Redis Caching ✅
+
+[Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3) · real Solana devnet calls (`getBalance`, `getParsedTokenAccountsByOwner`, `getSignaturesForAddress`), a real CoinGecko price call, both behind `CACHE_MANAGER` with a 45s TTL and hit/miss logging, a `RefreshService` (`@Cron(CronExpression.EVERY_MINUTE)`) writing `PortfolioSnapshot` rows via TypeORM, and `docker-compose.yml` running Redis + Postgres.
+
+**Notes:**
 
 If the scheduled job already refreshes the cache every minute, why do you still need the cache-aside check-first logic in the service at all — what breaks if you remove it and only rely on the schedule?
 
@@ -103,29 +119,7 @@ Things i found out when doing this topic:
 - You had to run the Redis and PostgreSQL services in Docker Compose to have a working environment for caching and persistence. The `docker-compose.yml` file defines the services, their images, ports, and environment variables needed for the application to connect to them. You could run them locally without installing them directly on your machine, which is convenient for development and testing.
 - Some topics where to vaguely described in the assignment PDF, but the official docs and the Solana Cookbook provided clear guidance on how to implement them. For example, the Solana Cookbook has a section on how to get account balances and token accounts by authority, which was helpful for implementing the `WalletService` methods.
 
-
-### Documentation
-
-- [NestJS — Task Scheduling](https://docs.nestjs.com/techniques/task-scheduling)
-- [NestJS — Caching](https://docs.nestjs.com/techniques/caching)
-- [NestJS — SQL (TypeORM) recipe](https://docs.nestjs.com/recipes/sql-typeorm)
-- [Redis — EXPIRE / TTL](https://redis.io/docs/latest/commands/expire/)
-- [Solana Cookbook — How to Get Account Balance](https://solana.com/developers/cookbook/accounts/get-account-balance)
-- [Solana Cookbook — How to Get All Token Accounts by Authority](https://solana.com/developers/cookbook/tokens/get-all-token-accounts)
-- [Solana Docs — getSignaturesForAddress](https://solana.com/docs/rpc/http/getsignaturesforaddress)
-
-### Video resources (watch in this order)
-
-1. [Nest.js Caching Tutorial in 15 Minutes (Redis + Unit Testing)](https://www.youtube.com/watch?v=KXnkhWRCj40) — closest to Assignment 6.
-2. [NestJS + PostgreSQL + TypeORM](https://youtu.be/W1gvIw0GNl8) — closest to Assignment 7.
-
-There isn't a strong dedicated video for `@nestjs/schedule` cron jobs or for the Solana `web3.js` balance/token calls specifically — both are simple enough that the official docs (linked above) and the QuickNode/Solana Cookbook guides cover it better than the video content that's out there. Worth reading those directly for Assignments 2, 3, and 5 rather than hunting for a mediocre video.
-
-### Next
-
-Once all nine assignments are done, move this section into "Completed topics" below, and update "Current step" to Topic 4 — Asset Normalization (added) + AI Service Integration.
-
-## Completed topics
+Documentation and videos used: [NestJS — Task Scheduling](https://docs.nestjs.com/techniques/task-scheduling), [Caching](https://docs.nestjs.com/techniques/caching), [SQL (TypeORM) recipe](https://docs.nestjs.com/recipes/sql-typeorm), [Redis — EXPIRE / TTL](https://redis.io/docs/latest/commands/expire/), [Solana Cookbook — Get Account Balance](https://solana.com/developers/cookbook/accounts/get-account-balance), [Get All Token Accounts by Authority](https://solana.com/developers/cookbook/tokens/get-all-token-accounts), [getSignaturesForAddress](https://solana.com/docs/rpc/http/getsignaturesforaddress); [Nest.js Caching Tutorial in 15 Minutes](https://www.youtube.com/watch?v=KXnkhWRCj40), [NestJS + PostgreSQL + TypeORM](https://youtu.be/W1gvIw0GNl8).
 
 ### Topic 2 — Auth & JWT (Wallet Sign-In) ✅
 
