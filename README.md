@@ -86,9 +86,11 @@ _(fill this in once you've done the assignments — same as Topics 1–3)_
 
 ### Documentation
 
-- [Claude API – Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)
+- [Claude API – Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) — the `output_config.format` approach (note: the older `output_format` param is deprecated).
+- [Claude API – Tool use overview](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview) — closest to Assignment 5's "tool-use-forced-JSON": define a tool with an `input_schema` and set `tool_choice` to force it, so Claude must return exactly that shape.
 - [Claude API – Intro](https://platform.claude.com/docs/en/intro)
-- [Zod](https://zod.dev/)
+- [Anthropic TypeScript SDK (`@anthropic-ai/sdk`)](https://github.com/anthropics/anthropic-sdk-typescript) — the client you'll call from `AiService` (Assignment 5).
+- [Zod](https://zod.dev/) — schema validation for Assignment 6 (this project uses Zod v4: `import { z } from "zod"`).
 
 ### Video resources (watch in this order)
 
