@@ -1,7 +1,9 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Controller, Get, Param, UseGuards } from "@nestjs/common";
 import { WalletService } from "./wallet.service";
+import { JwtGuard } from "src/auth/guards/jwt.guard";
 
 @Controller("wallet")
+@UseGuards(JwtGuard)
 export class WalletController {
   // Notice: the controller just delegates to the service. It doesn't
   // know *how* the balance is fetched — that's the service's job.
