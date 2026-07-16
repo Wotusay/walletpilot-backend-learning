@@ -82,7 +82,17 @@ Done when: you've written that paragraph without looking it up.
 
 ## Notes
 
-_(fill this in once you've done the assignments — same as Topics 1–3)_
+- Bad reasoning — input was correct, but the model drew the wrong conclusion from it. Fault is in the prompt/model/analysis logic.
+
+- Bad input — the model reasoned correctly, but on distorted data (mixed currencies, weights not summing to 100%, wrong ticker mapping). The answer is right given what it was told — but what it was told never matched reality.
+
+The AI can't tell these apart; a wrong number and a right number look identical to it.
+
+Normalization protects you from the second one — it guarantees the input is consistent and comparable (same currency, correct weights, canonical IDs) before the AI sees it. It does nothing for bad reasoning.
+
+Its real value: by removing input quality as a variable, it makes a wrong output diagnosable — you can tell whether the model reasoned badly or was just fed garbage.
+
+Other notes: Still have a feeling that some part of the backend are not coming together. I have to check the code and see if the services are wired correctly. I also need to check if the AIService is actually calling the Claude API and getting a response. If not, I need to debug that part and see if there are any errors or misconfigurations. I also need to check if the zod schema is defined correctly and matches the expected output shape. If not, I need to fix that as well.
 
 ### Documentation
 
