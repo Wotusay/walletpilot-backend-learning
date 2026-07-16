@@ -66,33 +66,36 @@ export class NormalizationService {
       decimals: number;
     }[];
 
-    tokens.forEach(async (token) => {
-      const amount = token.tokenAmount ?? 0;
-      const symbol = this.mintToSymbol(token.mint);
+    const splAssets = await Promise.all(
+      tokens.map(async (token) => {
+        const amount = token.tokenAmount ?? 0;
+        // Unknown mints still count toward "all balances" — fall back to the
+        // mint address as the symbol and leave usdValue at 0 (no price feed).
+        const symbol = this.mintToSymbol(token.mint) ?? token.mint;
 
-      if (!symbol) {
-        this.logger.warn(`No symbol mapping for mint ${token.mint}; skipping`);
-        return;
-      }
+        let usdValue = 0;
 
-      let usdValue = 0;
+        if (this.mintToSymbol(token.mint)) {
+          try {
+            const { price } = await this.marketDataService.getPrice(symbol);
+            usdValue = amount * price;
+          } catch (error) {
+            this.logger.warn(
+              `No price data for symbol ${symbol}; setting USD value to 0`,
+            );
+          }
+        }
 
-      try {
-        const { price } = await this.marketDataService.getPrice(symbol);
-        usdValue = amount * price;
-      } catch (error) {
-        this.logger.warn(
-          `No price data for symbol ${symbol}; setting USD value to 0`,
-        );
-      }
+        return {
+          symbol,
+          type: classifyAsset(token.mint),
+          amount,
+          usdValue,
+        };
+      }),
+    );
 
-      assets.push({
-        symbol,
-        type: classifyAsset(token.mint),
-        amount,
-        usdValue,
-      });
-    });
+    assets.push(...splAssets);
 
     return assets;
   }
