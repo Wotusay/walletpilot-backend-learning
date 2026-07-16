@@ -2,8 +2,10 @@ import { Module } from "@nestjs/common";
 import { WalletModule } from "src/wallet/wallet.module";
 import { MarketDataModule } from "src/market-data/market-data.module";
 import { NormalizationService } from "./normalization.service";
+import { NormalizationController } from "./normalization.controller";
 
 @Module({
+  controllers: [NormalizationController],
   providers: [NormalizationService],
   imports: [WalletModule, MarketDataModule],
   exports: [NormalizationService], // Exported so other modules (e.g. Portfolio) can inject NormalizationService.
