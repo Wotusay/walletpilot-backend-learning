@@ -4,4 +4,6 @@ export const config = () => ({
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
   databaseUrl: process.env.DATABASE_URL || "postgres://",
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  defaultWallet:
+    process.env.DEFAULT_WALLET || "5HZ8AEgxmnBwwmMKH4LZXxU5h6kGgq7XoWfgNHuGVpyU",
 });
