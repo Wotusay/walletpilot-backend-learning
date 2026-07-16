@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { NormalizationModule } from "./normalization/normalization.module";
 import { AuthModule } from "./auth/auth.module";
 import { WalletModule } from "./wallet/wallet.module";
 import { PortfolioModule } from "./portfolio/portfolio.module";
@@ -18,6 +19,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
     WalletModule,
     PortfolioModule,
     MarketDataModule,
+    NormalizationModule,
     AiModule,
     AlertsModule,
     RefreshModule,
@@ -34,6 +36,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
       useFactory: async (configService: ConfigService) => ({
         type: "postgres",
         url: configService.get<string>("databaseUrl"),
+        autoLoadEntities: true, // register every forFeature() entity on the connection
         synchronize: true, // Set to false in production
       }),
     }),

@@ -3,155 +3,354 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>WalletPilot — Phantom Sign-In</title>
+    <title>WalletPilot — Console</title>
     <style>
       :root {
-        color-scheme: light dark;
+        color-scheme: dark;
         --bg: #0f1115;
         --card: #171a21;
+        --panel: #131720;
         --border: #2a2f3a;
         --text: #e6e8ec;
         --muted: #9aa3b2;
+        --dim: #5b6472;
         --accent: #ab9ff2;
         --accent-fg: #1a1428;
         --ok: #4ade80;
         --warn: #fbbf24;
         --err: #f87171;
+        --mono: ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono", monospace;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
         display: flex;
-        align-items: center;
         justify-content: center;
         padding: 24px;
-        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: var(--bg);
+        font: 15px/1.55 var(--sans);
+        background:
+          radial-gradient(1200px 600px at 50% -10%, rgba(171, 159, 242, 0.08), transparent 60%),
+          var(--bg);
         color: var(--text);
       }
+      .shell { width: 100%; max-width: 960px; }
       .card {
-        width: 100%;
-        max-width: 560px;
         background: var(--card);
         border: 1px solid var(--border);
-        border-radius: 14px;
+        border-radius: 16px;
         padding: 28px;
       }
-      h1 { margin: 0 0 4px; font-size: 20px; }
-      p.sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
-      code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      /* --- telemetry primitives --- */
+      .eyebrow {
+        font: 600 11px/1 var(--mono);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      h1 { margin: 4px 0 4px; font-size: 22px; letter-spacing: -0.01em; }
+      p.sub { margin: 0 0 22px; color: var(--muted); font-size: 14px; }
+      code { font: 12px var(--mono); }
+      .mono { font-family: var(--mono); }
+
       button {
         appearance: none;
         border: 0;
         border-radius: 10px;
-        padding: 12px 18px;
-        font-size: 15px;
-        font-weight: 600;
+        padding: 11px 16px;
+        font: 600 14px var(--sans);
         background: var(--accent);
         color: var(--accent-fg);
         cursor: pointer;
       }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
-      button.secondary {
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      button.ghost {
         background: transparent;
         color: var(--text);
         border: 1px solid var(--border);
-        padding: 8px 14px;
-        font-size: 14px;
       }
-      .session {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 10px;
-        margin-top: 16px;
-      }
-      .session .timer {
-        flex: 1 1 auto;
-        min-width: 180px;
-        font-size: 13px;
-        color: var(--muted);
-      }
-      .session .timer strong {
-        font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
-        color: var(--text);
-      }
-      .session.warn .timer strong { color: var(--warn); }
-      .session.expired .timer strong { color: var(--err); }
-      .result {
-        margin-top: 18px;
-        padding: 12px 14px;
-        border-radius: 10px;
+      button.ghost:hover { border-color: var(--accent); }
+      button.sm { padding: 7px 12px; font-size: 13px; }
+
+      input[type="text"] {
+        background: #0b0d12;
         border: 1px solid var(--border);
-        background: rgba(171, 159, 242, 0.08);
-        font-size: 14px;
-        word-break: break-all;
-        display: none;
+        border-radius: 10px;
+        color: var(--text);
+        font: 13px var(--mono);
+        padding: 10px 12px;
+      }
+      input[type="text"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      /* --- header (signed in) --- */
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 18px;
+      }
+      .topbar .brand { font: 700 16px var(--sans); letter-spacing: -0.01em; margin-right: auto; }
+      .brand small { display: block; font: 600 10px/1.4 var(--mono); letter-spacing: 0.16em; color: var(--dim); text-transform: uppercase; }
+      .pill {
+        font: 12px var(--mono);
+        color: var(--text);
+        background: rgba(171, 159, 242, 0.1);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 11px;
+      }
+      .countdown { font: 12px var(--mono); color: var(--muted); }
+      .countdown strong { color: var(--text); }
+      .countdown.warn strong { color: var(--warn); }
+      .countdown.expired strong { color: var(--err); }
+
+      /* --- address bar --- */
+      .addrbar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+      .addrbar label { flex: 0 0 auto; }
+      .addrbar input { flex: 1 1 320px; min-width: 220px; }
+
+      /* --- panel grid --- */
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .grid .wide { grid-column: 1 / -1; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px 16px 18px;
+      }
+      .panel-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .out { margin-top: 12px; min-height: 20px; }
+      .out .placeholder { color: var(--dim); font: 13px var(--mono); }
+      .out .err { color: var(--err); font: 13px var(--mono); }
+
+      /* readouts */
+      .readout-big { font: 700 26px/1.1 var(--mono); letter-spacing: -0.01em; }
+      .readout-big .unit { font-size: 14px; color: var(--muted); font-weight: 600; margin-left: 6px; }
+      .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font: 13px var(--mono); }
+      .kv dt { color: var(--muted); }
+      .kv dd { margin: 0; text-align: right; word-break: break-all; }
+
+      table.data { width: 100%; border-collapse: collapse; font: 12.5px var(--mono); }
+      table.data th {
+        text-align: left; color: var(--dim); font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.08em; font-size: 10.5px;
+        padding: 0 10px 6px 0; border-bottom: 1px solid var(--border);
+      }
+      table.data td { padding: 6px 10px 6px 0; border-bottom: 1px solid rgba(42, 47, 58, 0.5); }
+      table.data td:last-child, table.data th:last-child { text-align: right; padding-right: 0; }
+      ol.sigs { margin: 0; padding-left: 22px; font: 12.5px var(--mono); color: var(--muted); }
+      ol.sigs li { padding: 3px 0; }
+
+      .badge {
+        display: inline-block; font: 600 11px var(--mono); letter-spacing: 0.06em;
+        text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
+        border: 1px solid currentColor;
+      }
+      .badge.low { color: var(--ok); }
+      .badge.medium { color: var(--warn); }
+      .badge.high { color: var(--err); }
+      .badge.type { color: var(--accent); border-color: var(--border); }
+
+      /* allocation bars */
+      .alloc { display: grid; grid-template-columns: 90px 1fr 52px; gap: 6px 10px; align-items: center; font: 12.5px var(--mono); margin-top: 4px; }
+      .alloc .track { height: 7px; background: #0b0d12; border-radius: 999px; overflow: hidden; }
+      .alloc .fill { height: 100%; background: var(--accent); border-radius: 999px; }
+      .alloc .pct { text-align: right; color: var(--muted); }
+
+      /* AI analysis */
+      .ai-top { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+      .gauge { position: relative; width: 120px; height: 120px; flex: 0 0 auto; }
+      .gauge svg { transform: rotate(-90deg); }
+      .gauge .score { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .gauge .score b { font: 700 26px var(--mono); }
+      .gauge .score span { font: 600 9px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+      .ai-summary { flex: 1 1 260px; }
+      .ai-summary .risk-line { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+      .ai-section { margin-top: 14px; }
+      .ai-section h3 { margin: 0 0 5px; font: 600 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+      .ai-section p { margin: 0; font-size: 14px; color: var(--text); }
+      .ai-section ul { margin: 0; padding-left: 20px; font-size: 14px; }
+      .ai-section li { padding: 2px 0; }
+      .ai-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+      /* chart */
+      .chart-wrap { position: relative; }
+      #chart { width: 100%; height: 200px; display: block; }
+      .chart-status { display: flex; align-items: center; gap: 8px; margin-top: 10px; font: 12px var(--mono); color: var(--muted); }
+      .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--dim); flex: 0 0 auto; }
+      .dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.18); }
+
+      .spinner {
+        display: inline-block; width: 13px; height: 13px; margin-left: 6px;
+        border: 2px solid rgba(26, 20, 40, 0.35); border-top-color: var(--accent-fg);
+        border-radius: 999px; vertical-align: -2px; animation: spin 0.7s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      .result {
+        margin-top: 18px; padding: 12px 14px; border-radius: 10px;
+        border: 1px solid var(--border); background: rgba(171, 159, 242, 0.08);
+        font-size: 14px; word-break: break-all; display: none;
       }
       .result.show { display: block; }
       .result.ok { border-color: var(--ok); }
       .result.err { border-color: var(--err); }
       .result strong { display: block; margin-bottom: 4px; color: var(--muted); font-weight: 600; }
+
+      details.logbox { margin-top: 18px; }
+      details.logbox summary { cursor: pointer; color: var(--dim); font: 600 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; }
       #log {
-        margin-top: 18px;
-        padding: 12px 14px;
-        border-radius: 10px;
-        background: #0b0d12;
-        border: 1px solid var(--border);
-        font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-        color: var(--muted);
-        white-space: pre-wrap;
-        word-break: break-all;
-        max-height: 260px;
-        overflow-y: auto;
+        margin-top: 12px; padding: 12px 14px; border-radius: 10px;
+        background: #0b0d12; border: 1px solid var(--border);
+        font: 12px/1.6 var(--mono); color: var(--muted);
+        white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow-y: auto;
       }
       #log .step { color: var(--text); }
       #log .good { color: var(--ok); }
       #log .bad { color: var(--err); }
       a { color: var(--accent); }
       [hidden] { display: none !important; }
+
+      @media (max-width: 700px) {
+        .grid { grid-template-columns: 1fr; }
+        .ai-cols { grid-template-columns: 1fr; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner { animation: none; }
+        * { transition: none !important; }
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>WalletPilot — Sign in with Phantom</h1>
-      <p class="sub">
-        Connect a real Phantom wallet, sign a server nonce, and get your public
-        key back from the JWT-guarded <code>/auth/me</code>. The token is kept in
-        <code>localStorage</code>, so a reload keeps you signed in until it expires.
-      </p>
-
-      <!-- Signed-out view -->
-      <div id="signedOut">
+    <div class="shell">
+      <!-- ===================== SIGNED-OUT ===================== -->
+      <div id="signedOut" class="card">
+        <div class="eyebrow">WalletPilot · Console</div>
+        <h1>Sign in with Phantom</h1>
+        <p class="sub">
+          Connect a real Phantom wallet, sign a server nonce, and get a
+          JWT back from <code>/auth/me</code>. The token is kept in
+          <code>localStorage</code>, so a reload keeps you signed in until it
+          expires. Once in, your connected wallet becomes the default address
+          for every call — no manual pasting.
+        </p>
         <button id="connect">Connect Phantom</button>
       </div>
 
-      <!-- Signed-in view -->
-      <div id="signedIn" hidden>
-        <div id="result-in" class="result ok show">
-          <strong>Signed in — public key:</strong>
-          <span id="who"></span>
+      <!-- ===================== SIGNED-IN / DASHBOARD ===================== -->
+      <div id="signedIn" class="card" hidden>
+        <div class="topbar">
+          <div class="brand">WalletPilot<small>Portfolio Console</small></div>
+          <span class="pill" id="who"></span>
+          <span class="countdown" id="session">exp <strong id="countdown">--:--</strong></span>
+          <button id="reauth" class="ghost sm">Re-authenticate</button>
+          <button id="logout" class="ghost sm">Log out</button>
         </div>
-        <div class="session" id="session">
-          <div class="timer">
-            Session expires in <strong id="countdown">--:--</strong>
-          </div>
-          <button id="reauth" class="secondary">Re-authenticate</button>
-          <button id="logout" class="secondary">Log out</button>
+
+        <div class="addrbar">
+          <label class="eyebrow" for="activeAddress">Active address</label>
+          <input type="text" id="activeAddress" spellcheck="false" autocomplete="off" />
+          <button id="useMine" class="ghost sm">Use my wallet</button>
         </div>
+
+        <div class="grid">
+          <!-- Wallet -->
+          <section class="panel">
+            <div class="panel-head"><span class="eyebrow">Wallet</span></div>
+            <div class="row">
+              <button class="ghost sm" data-wallet="balance">Balance</button>
+              <button class="ghost sm" data-wallet="tokens">Tokens</button>
+              <button class="ghost sm" data-wallet="transactions">Transactions</button>
+            </div>
+            <div class="out" id="out-wallet"><span class="placeholder">— run a call —</span></div>
+          </section>
+
+          <!-- Portfolio -->
+          <section class="panel">
+            <div class="panel-head"><span class="eyebrow">Portfolio</span></div>
+            <div class="row">
+              <button class="ghost sm" id="btn-portfolio">Summary</button>
+            </div>
+            <div class="out" id="out-portfolio"><span class="placeholder">— run a call —</span></div>
+          </section>
+
+          <!-- Market -->
+          <section class="panel">
+            <div class="panel-head"><span class="eyebrow">Market data</span></div>
+            <div class="row">
+              <input type="text" id="symbol" value="SOL" style="width: 90px" />
+              <button class="ghost sm" id="btn-market">Price</button>
+            </div>
+            <div class="out" id="out-market"><span class="placeholder">— run a call —</span></div>
+          </section>
+
+          <!-- Normalization -->
+          <section class="panel">
+            <div class="panel-head"><span class="eyebrow">Normalization</span></div>
+            <div class="row">
+              <button class="ghost sm" id="btn-normalize">Normalize</button>
+              <button class="ghost sm" id="btn-normalize-me">My portfolio</button>
+            </div>
+            <div class="out" id="out-normalization"><span class="placeholder">— run a call —</span></div>
+          </section>
+
+          <!-- AI Analysis -->
+          <section class="panel wide">
+            <div class="panel-head">
+              <span class="eyebrow">AI analysis</span>
+              <button id="btn-ai">Analyze</button>
+            </div>
+            <div class="out" id="out-ai"><span class="placeholder">— structured portfolio analysis from Claude —</span></div>
+          </section>
+
+          <!-- Refresh + live chart -->
+          <section class="panel wide">
+            <div class="panel-head">
+              <span class="eyebrow">Refresh · live value</span>
+              <button id="btn-refresh" class="ghost sm">Refresh now</button>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="chart"></canvas>
+            </div>
+            <div class="chart-status">
+              <span class="dot" id="stream-dot"></span>
+              <span id="stream-status">idle</span>
+            </div>
+          </section>
+        </div>
+
+        <details class="logbox">
+          <summary>Session log</summary>
+          <pre id="log"></pre>
+        </details>
       </div>
 
       <div id="result" class="result"></div>
-      <pre id="log"></pre>
     </div>
 
     <script>
       // --- tiny, dependency-free base58 encoder (Bitcoin/Solana alphabet) ---
       // Phantom's signMessage returns raw bytes; the API decodes with bs58.decode,
       // so we must send the signature base58-encoded.
-      const B58 =
-        "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+      const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
       function base58Encode(bytes) {
         const digits = [];
         for (let i = 0; i < bytes.length; i++) {
@@ -167,7 +366,6 @@
           }
         }
         let out = "";
-        // preserve leading zero bytes as leading '1's
         for (let k = 0; k < bytes.length && bytes[k] === 0; k++) out += "1";
         for (let q = digits.length - 1; q >= 0; q--) out += B58[digits[q]];
         return out;
@@ -176,6 +374,7 @@
       // --- session state ---
       const STORAGE_KEY = "walletpilot_jwt";
       let countdownTimer = null;
+      let connectedPk = null; // the wallet we signed in with (default address)
 
       // --- DOM refs ---
       const logEl = document.getElementById("log");
@@ -188,6 +387,7 @@
       const countdownEl = document.getElementById("countdown");
       const reauthBtn = document.getElementById("reauth");
       const logoutBtn = document.getElementById("logout");
+      const addrInput = document.getElementById("activeAddress");
 
       // --- UI helpers ---
       function log(msg, cls = "step") {
@@ -205,17 +405,18 @@
         resultEl.appendChild(strong);
         resultEl.appendChild(document.createTextNode(value));
       }
-      function clearResult() {
-        resultEl.className = "result";
-      }
+      function clearResult() { resultEl.className = "result"; }
+      const short = (s, n = 4) => (s && s.length > 2 * n + 1 ? s.slice(0, n) + "…" + s.slice(-n) : s);
+      const fmtUsd = (n) => "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtNum = (n, d = 4) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
 
-      // --- JWT helpers (decode only — no verification, that's the server's job) ---
+      // --- JWT helpers (decode only — verification is the server's job) ---
       function decodeJwt(token) {
         const payload = token.split(".")[1];
         const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
         return JSON.parse(json); // { sub, iat, exp }
       }
-
+      function token() { return localStorage.getItem(STORAGE_KEY); }
       function formatRemaining(ms) {
         const s = Math.max(0, Math.floor(ms / 1000));
         const mm = String(Math.floor(s / 60)).padStart(2, "0");
@@ -223,9 +424,6 @@
         return mm + ":" + ss;
       }
 
-      // Live countdown to the JWT's `exp`. There is NO server refresh endpoint —
-      // the token is signed once with expiresIn '1h'. So when it runs low we can't
-      // silently refresh; we surface it and let the user re-sign (Re-authenticate).
       function startCountdown(expSeconds) {
         clearInterval(countdownTimer);
         let warnedSoon = false;
@@ -240,14 +438,11 @@
             return;
           }
           countdownEl.textContent = formatRemaining(remaining);
-          const soon = remaining < 5 * 60 * 1000; // under 5 min
+          const soon = remaining < 5 * 60 * 1000;
           sessionEl.classList.toggle("warn", soon);
           if (soon && !warnedSoon) {
             warnedSoon = true;
-            log(
-              "⚠ Session expiring soon — click Re-authenticate to get a fresh token.",
-              "step",
-            );
+            log("⚠ Session expiring soon — click Re-authenticate to get a fresh token.", "step");
           }
         };
         tick();
@@ -257,66 +452,50 @@
       function onExpired() {
         localStorage.removeItem(STORAGE_KEY);
         log("Session expired. Re-authenticate to continue.", "bad");
-        showResult(
-          "Session expired",
-          "Your 1-hour token has expired. Click Re-authenticate to sign a fresh nonce.",
-          "err",
-        );
+        showResult("Session expired", "Your 1-hour token has expired. Click Re-authenticate to sign a fresh nonce.", "err");
       }
 
       // --- view transitions ---
-      function enterSignedIn(token, sub) {
-        localStorage.setItem(STORAGE_KEY, token);
-        whoEl.textContent = sub;
+      function enterSignedIn(jwt, sub) {
+        localStorage.setItem(STORAGE_KEY, jwt);
+        connectedPk = sub;
+        whoEl.textContent = short(sub, 5);
+        whoEl.title = sub;
         sessionEl.classList.remove("warn", "expired");
         signedOutEl.hidden = true;
         signedInEl.hidden = false;
         clearResult();
-        startCountdown(decodeJwt(token).exp);
+        setActiveAddress(sub); // default every call to the connected wallet
+        startCountdown(decodeJwt(jwt).exp);
       }
 
       async function logout() {
         clearInterval(countdownTimer);
+        closeStream();
         localStorage.removeItem(STORAGE_KEY);
-        try {
-          await window.phantom?.solana?.disconnect();
-        } catch (_) {
-          /* best effort */
-        }
+        try { await window.phantom?.solana?.disconnect(); } catch (_) {}
         signedInEl.hidden = true;
         signedOutEl.hidden = false;
         clearResult();
         log("Logged out.", "step");
       }
 
-      // On load: restore a stored token if it's still valid, confirming with the
-      // server via /auth/me (a locally-unexpired token could still be rejected).
+      // On load: restore a stored token if still valid, confirming via /auth/me.
       async function restoreSession() {
-        const token = localStorage.getItem(STORAGE_KEY);
-        if (!token) return;
+        const tok = localStorage.getItem(STORAGE_KEY);
+        if (!tok) return;
         let claims;
-        try {
-          claims = decodeJwt(token);
-        } catch (_) {
-          localStorage.removeItem(STORAGE_KEY);
-          return;
-        }
+        try { claims = decodeJwt(tok); } catch (_) { localStorage.removeItem(STORAGE_KEY); return; }
         if (!claims.exp || claims.exp * 1000 <= Date.now()) {
           localStorage.removeItem(STORAGE_KEY);
           log("Stored session had already expired.", "step");
           return;
         }
         try {
-          const res = await fetch("/auth/me", {
-            headers: { Authorization: "Bearer " + token },
-          });
-          if (!res.ok) {
-            localStorage.removeItem(STORAGE_KEY);
-            log("Stored token rejected by server — cleared.", "step");
-            return;
-          }
+          const res = await fetch("/auth/me", { headers: { Authorization: "Bearer " + tok } });
+          if (!res.ok) { localStorage.removeItem(STORAGE_KEY); log("Stored token rejected by server — cleared.", "step"); return; }
           const me = await res.json();
-          enterSignedIn(token, me.sub);
+          enterSignedIn(tok, me.sub);
           log("✓ Restored session from stored token: " + me.sub, "good");
         } catch (err) {
           log("Could not reach server to restore session: " + err.message, "bad");
@@ -329,43 +508,23 @@
         clearResult();
         btn.disabled = true;
         reauthBtn.disabled = true;
-
         try {
-          // 1. Detect the provider
           const provider = window.phantom?.solana;
           if (!provider?.isPhantom) {
             log("Phantom not detected.", "bad");
-            showResult(
-              "Phantom not found",
-              "Install it from https://phantom.com, create a wallet (no funds needed), then reload.",
-              "err",
-            );
+            showResult("Phantom not found", "Install it from https://phantom.com, create a wallet (no funds needed), then reload.", "err");
             return;
           }
           log("✓ Phantom detected", "good");
-
-          // 2. Connect — opens the real Phantom popup.
-          // Some browsers (notably Arc) don't auto-surface the extension popup;
-          // the request is queued behind the toolbar icon. If connect() hasn't
-          // resolved shortly, nudge the user to open Phantom manually.
           log("→ Requesting connection… (approve the popup)");
           const hintTimer = setTimeout(() => {
-            log(
-              "…no popup? Click the Phantom icon in your toolbar to approve, " +
-                "and make sure Phantom is unlocked.",
-              "step",
-            );
+            log("…no popup? Click the Phantom icon in your toolbar to approve, and make sure Phantom is unlocked.", "step");
           }, 2500);
           let publicKey;
-          try {
-            ({ publicKey } = await provider.connect());
-          } finally {
-            clearTimeout(hintTimer);
-          }
+          try { ({ publicKey } = await provider.connect()); } finally { clearTimeout(hintTimer); }
           const pk = publicKey.toString();
           log("✓ Connected: " + pk, "good");
 
-          // 3. Ask our API for a nonce (returns a raw string)
           log("→ POST /auth/nonce");
           const nonceRes = await fetch("/auth/nonce", {
             method: "POST",
@@ -376,34 +535,23 @@
           const nonce = await nonceRes.text();
           log("✓ Nonce: " + nonce, "good");
 
-          // 4. Sign the exact nonce bytes for real
           log("→ Requesting signature… (approve the popup)");
-          const { signature } = await provider.signMessage(
-            new TextEncoder().encode(nonce),
-            "utf8",
-          );
+          const { signature } = await provider.signMessage(new TextEncoder().encode(nonce), "utf8");
           const sigB58 = base58Encode(signature);
           log("✓ Signed (base58): " + sigB58, "good");
 
-          // 5. Verify — returns the raw JWT string, or 401
           log("→ POST /auth/verify");
           const verifyRes = await fetch("/auth/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ publicKey: pk, signature: sigB58 }),
           });
-          if (!verifyRes.ok) {
-            const errText = await verifyRes.text();
-            throw new Error("verify failed (" + verifyRes.status + "): " + errText);
-          }
+          if (!verifyRes.ok) { const t = await verifyRes.text(); throw new Error("verify failed (" + verifyRes.status + "): " + t); }
           const jwt = await verifyRes.text();
           log("✓ JWT received (stored in localStorage)", "good");
 
-          // 6. Confirm against the guarded route, then enter the signed-in state
           log("→ GET /auth/me (Bearer token)");
-          const meRes = await fetch("/auth/me", {
-            headers: { Authorization: "Bearer " + jwt },
-          });
+          const meRes = await fetch("/auth/me", { headers: { Authorization: "Bearer " + jwt } });
           if (!meRes.ok) throw new Error("/auth/me failed: " + meRes.status);
           const me = await meRes.json();
           log("✓ /auth/me: " + JSON.stringify(me), "good");
@@ -418,9 +566,413 @@
         }
       }
 
+      // ======================= DASHBOARD =======================
+
+      // Authenticated fetch: attaches the Bearer token to every call.
+      async function apiFetch(path, opts = {}) {
+        const res = await fetch(path, {
+          ...opts,
+          headers: { Authorization: "Bearer " + token(), ...(opts.headers || {}) },
+        });
+        if (res.status === 401) { onExpired(); throw new Error("401 — session expired"); }
+        if (!res.ok) throw new Error(res.status + " — " + (await res.text().catch(() => "")));
+        return res.json();
+      }
+
+      const activeAddress = () => addrInput.value.trim();
+      const el = (id) => document.getElementById(id);
+
+      function setBusy(node) { node.innerHTML = '<span class="placeholder">loading…</span>'; }
+      function setError(node, err) {
+        node.innerHTML = "";
+        const s = document.createElement("span");
+        s.className = "err";
+        s.textContent = "✗ " + (err?.message || err);
+        node.appendChild(s);
+      }
+      // Render a flat object as aligned key → value rows.
+      function renderKV(node, obj, formatters = {}) {
+        node.innerHTML = "";
+        const dl = document.createElement("dl");
+        dl.className = "kv";
+        for (const [k, v] of Object.entries(obj)) {
+          const dt = document.createElement("dt");
+          dt.textContent = k;
+          const dd = document.createElement("dd");
+          dd.textContent = formatters[k] ? formatters[k](v) : v;
+          dl.appendChild(dt);
+          dl.appendChild(dd);
+        }
+        node.appendChild(dl);
+      }
+      function makeTable(headers, rows) {
+        const t = document.createElement("table");
+        t.className = "data";
+        const thead = document.createElement("thead");
+        const htr = document.createElement("tr");
+        headers.forEach((h) => { const th = document.createElement("th"); th.textContent = h; htr.appendChild(th); });
+        thead.appendChild(htr);
+        t.appendChild(thead);
+        const tb = document.createElement("tbody");
+        rows.forEach((r) => {
+          const tr = document.createElement("tr");
+          r.forEach((cell) => {
+            const td = document.createElement("td");
+            if (cell instanceof Node) td.appendChild(cell); else td.textContent = cell;
+            tr.appendChild(td);
+          });
+          tb.appendChild(tr);
+        });
+        t.appendChild(tb);
+        return t;
+      }
+      function empty(node, msg) { node.innerHTML = '<span class="placeholder">' + msg + "</span>"; }
+
+      // ---- Wallet ----
+      async function runWallet(kind) {
+        const addr = activeAddress();
+        const node = el("out-wallet");
+        if (!addr) return empty(node, "enter an address");
+        setBusy(node);
+        try {
+          const data = await apiFetch(`/wallet/${addr}/${kind}`);
+          node.innerHTML = "";
+          if (kind === "balance") {
+            const big = document.createElement("div");
+            big.className = "readout-big";
+            big.innerHTML = fmtNum(data.balance, 6) + '<span class="unit">SOL</span>';
+            const sub = document.createElement("div");
+            sub.className = "placeholder";
+            sub.style.marginTop = "6px";
+            sub.textContent = short(data.address, 6);
+            node.appendChild(big); node.appendChild(sub);
+          } else if (kind === "tokens") {
+            if (!Array.isArray(data) || data.length === 0) return empty(node, "No SPL tokens on this wallet");
+            node.appendChild(makeTable(
+              ["Mint", "Amount", "Dec"],
+              data.map((t) => [short(t.mint, 5), fmtNum(t.tokenAmount, 6), String(t.decimals)]),
+            ));
+          } else {
+            if (!Array.isArray(data) || data.length === 0) return empty(node, "No recent transactions");
+            const ol = document.createElement("ol");
+            ol.className = "sigs";
+            data.forEach((s) => {
+              const li = document.createElement("li");
+              const sig = s.signature || s;
+              li.textContent = short(sig, 8) + (s.confirmationStatus ? "  · " + s.confirmationStatus : "");
+              ol.appendChild(li);
+            });
+            node.appendChild(ol);
+          }
+        } catch (e) { setError(node, e); }
+      }
+
+      // ---- Portfolio ----
+      async function runPortfolio() {
+        const addr = activeAddress();
+        const node = el("out-portfolio");
+        if (!addr) return empty(node, "enter an address");
+        setBusy(node);
+        try {
+          const data = await apiFetch(`/portfolio/${addr}/summary`);
+          node.innerHTML = "";
+          renderKV(node, { address: short(data.address, 6), walletBalance: data.walletBalance }, {
+            walletBalance: (v) => fmtNum(v, 6) + " SOL",
+          });
+          const holdings = data.holdings || [];
+          if (holdings.length === 0) {
+            const p = document.createElement("div");
+            p.className = "placeholder";
+            p.style.marginTop = "10px";
+            p.textContent = "holdings: [] (not yet populated by the backend)";
+            node.appendChild(p);
+          } else {
+            node.appendChild(makeTable(["Symbol", "Amount"], holdings.map((h) => [h.symbol ?? "?", fmtNum(h.amount ?? 0)])));
+          }
+        } catch (e) { setError(node, e); }
+      }
+
+      // ---- Market ----
+      async function runMarket() {
+        const sym = (el("symbol").value.trim() || "SOL").toUpperCase();
+        const node = el("out-market");
+        setBusy(node);
+        try {
+          const data = await apiFetch(`/market-data/price/${sym}`);
+          node.innerHTML = "";
+          const big = document.createElement("div");
+          big.className = "readout-big";
+          big.innerHTML = fmtUsd(data.price) + '<span class="unit">' + data.symbol + "</span>";
+          node.appendChild(big);
+        } catch (e) { setError(node, e); }
+      }
+
+      // ---- Normalization ----
+      // mine=true hits /normalization/me — the wallet is read from the JWT,
+      // ignoring the editable address input.
+      async function runNormalize(mine = false) {
+        const addr = activeAddress();
+        const node = el("out-normalization");
+        if (!mine && !addr) return empty(node, "enter an address");
+        setBusy(node);
+        try {
+          const path = mine ? "/normalization/me" : `/normalization/${addr}`;
+          const { assets, metrics } = await apiFetch(path);
+          node.innerHTML = "";
+          if (!assets || assets.length === 0) { empty(node, "No assets to normalize"); }
+          else {
+            node.appendChild(makeTable(
+              ["Symbol", "Type", "Amount", "USD"],
+              assets.map((a) => {
+                const badge = document.createElement("span");
+                badge.className = "badge type";
+                badge.textContent = a.type;
+                return [a.symbol, badge, fmtNum(a.amount, 4), fmtUsd(a.usdValue)];
+              }),
+            ));
+          }
+          if (metrics) {
+            const total = document.createElement("div");
+            total.className = "readout-big";
+            total.style.marginTop = "14px";
+            total.innerHTML = fmtUsd(metrics.totalUsdValue) + '<span class="unit">total</span>';
+            node.appendChild(total);
+            (metrics.allocationByAsset || []).forEach((a) => {
+              const row = document.createElement("div");
+              row.className = "alloc";
+              row.innerHTML =
+                "<span>" + a.symbol + "</span>" +
+                '<span class="track"><span class="fill" style="width:' + Math.min(100, a.pct).toFixed(1) + '%"></span></span>' +
+                '<span class="pct">' + a.pct.toFixed(1) + "%</span>";
+              node.appendChild(row);
+            });
+          }
+        } catch (e) { setError(node, e); }
+      }
+
+      // ---- AI analysis ----
+      const aiBtn = el("btn-ai");
+      async function runAi() {
+        const addr = activeAddress();
+        const node = el("out-ai");
+        if (!addr) return empty(node, "enter an address");
+        aiBtn.disabled = true;
+        aiBtn.innerHTML = 'Analyzing<span class="spinner"></span>';
+        setBusy(node);
+        try {
+          const a = await apiFetch(`/ai/analyze/${addr}`, { method: "POST" });
+          renderAnalysis(node, a);
+        } catch (e) { setError(node, e); }
+        finally { aiBtn.disabled = false; aiBtn.textContent = "Analyze"; }
+      }
+      function renderAnalysis(node, a) {
+        node.innerHTML = "";
+        const risk = String(a.riskLevel || "").toLowerCase();
+        const score = Math.max(0, Math.min(100, Number(a.portfolioHealthScore) || 0));
+        const riskColor = risk === "high" ? "var(--err)" : risk === "medium" ? "var(--warn)" : "var(--ok)";
+
+        const top = document.createElement("div");
+        top.className = "ai-top";
+        // gauge (donut ring)
+        const R = 52, C = 2 * Math.PI * R, off = C * (1 - score / 100);
+        const gauge = document.createElement("div");
+        gauge.className = "gauge";
+        gauge.innerHTML =
+          '<svg width="120" height="120" viewBox="0 0 120 120">' +
+          '<circle cx="60" cy="60" r="' + R + '" fill="none" stroke="#0b0d12" stroke-width="10"/>' +
+          '<circle cx="60" cy="60" r="' + R + '" fill="none" stroke="' + riskColor + '" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>' +
+          "</svg>" +
+          '<div class="score"><b>' + score + '</b><span>Health</span></div>';
+        top.appendChild(gauge);
+
+        const summary = document.createElement("div");
+        summary.className = "ai-summary";
+        const riskLine = document.createElement("div");
+        riskLine.className = "risk-line";
+        const badge = document.createElement("span");
+        badge.className = "badge " + (risk || "low");
+        badge.textContent = (a.riskLevel || "?") + " risk";
+        riskLine.appendChild(badge);
+        summary.appendChild(riskLine);
+        const exec = document.createElement("p");
+        exec.textContent = a.executiveSummary || "";
+        summary.appendChild(exec);
+        top.appendChild(summary);
+        node.appendChild(top);
+
+        const section = (title, contentNode) => {
+          const s = document.createElement("div");
+          s.className = "ai-section";
+          const h = document.createElement("h3");
+          h.textContent = title;
+          s.appendChild(h);
+          s.appendChild(contentNode);
+          return s;
+        };
+        const para = (txt) => { const p = document.createElement("p"); p.textContent = txt || "—"; return p; };
+        const list = (items) => {
+          const ul = document.createElement("ul");
+          (items || []).forEach((it) => { const li = document.createElement("li"); li.textContent = it; ul.appendChild(li); });
+          if (!items || items.length === 0) { const li = document.createElement("li"); li.textContent = "—"; ul.appendChild(li); }
+          return ul;
+        };
+
+        node.appendChild(section("Diversification", para(a.diversificationAnalysis)));
+        node.appendChild(section("Trading behavior", para(a.tradingBehavior)));
+        const cols = document.createElement("div");
+        cols.className = "ai-cols";
+        cols.appendChild(section("Observations", list(a.observations)));
+        cols.appendChild(section("Potential risks", list(a.potentialRisks)));
+        node.appendChild(cols);
+      }
+
+      // ======================= LIVE CHART =======================
+      let chartPoints = []; // { id, t, v }
+      const seenIds = new Set();
+      let eventSource = null;
+      const chartCanvas = el("chart");
+      const streamDot = el("stream-dot");
+      const streamStatus = el("stream-status");
+
+      function addPoint(snapshot) {
+        if (snapshot.id && seenIds.has(snapshot.id)) return;
+        if (snapshot.id) seenIds.add(snapshot.id);
+        chartPoints.push({ id: snapshot.id, t: new Date(snapshot.createdAt).getTime(), v: Number(snapshot.totalValue) });
+        chartPoints.sort((a, b) => a.t - b.t);
+        if (chartPoints.length > 240) chartPoints = chartPoints.slice(-240);
+        drawChart();
+        const last = chartPoints[chartPoints.length - 1];
+        streamStatus.textContent = "live · last " + fmtUsd(last.v) + " · " + new Date(last.t).toLocaleTimeString();
+      }
+
+      function drawChart() {
+        const ctx = chartCanvas.getContext("2d");
+        const dpr = window.devicePixelRatio || 1;
+        const w = chartCanvas.clientWidth || 600;
+        const h = chartCanvas.clientHeight || 200;
+        chartCanvas.width = w * dpr;
+        chartCanvas.height = h * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+
+        if (chartPoints.length === 0) {
+          ctx.fillStyle = "#5b6472";
+          ctx.font = '13px ui-monospace, monospace';
+          ctx.fillText("no snapshots yet — click “Refresh now”", 8, h / 2);
+          return;
+        }
+        const pad = { l: 8, r: 60, t: 16, b: 20 };
+        const vals = chartPoints.map((p) => p.v);
+        let min = Math.min(...vals), max = Math.max(...vals);
+        if (min === max) { min -= 1; max += 1; }
+        const t0 = chartPoints[0].t, t1 = chartPoints[chartPoints.length - 1].t;
+        const spanT = t1 - t0 || 1;
+        const x = (t) => pad.l + ((t - t0) / spanT) * (w - pad.l - pad.r);
+        const y = (v) => h - pad.b - ((v - min) / (max - min)) * (h - pad.t - pad.b);
+
+        // baseline grid
+        ctx.strokeStyle = "rgba(42,47,58,0.6)";
+        ctx.lineWidth = 1;
+        [max, (max + min) / 2, min].forEach((v) => {
+          ctx.beginPath(); ctx.moveTo(pad.l, y(v)); ctx.lineTo(w - pad.r, y(v)); ctx.stroke();
+          ctx.fillStyle = "#5b6472"; ctx.font = "10px ui-monospace, monospace";
+          ctx.fillText(fmtUsd(v), w - pad.r + 6, y(v) + 3);
+        });
+
+        // area fill
+        const grad = ctx.createLinearGradient(0, pad.t, 0, h - pad.b);
+        grad.addColorStop(0, "rgba(171,159,242,0.28)");
+        grad.addColorStop(1, "rgba(171,159,242,0)");
+        ctx.beginPath();
+        ctx.moveTo(x(chartPoints[0].t), y(chartPoints[0].v));
+        chartPoints.forEach((p) => ctx.lineTo(x(p.t), y(p.v)));
+        ctx.lineTo(x(t1), h - pad.b);
+        ctx.lineTo(x(t0), h - pad.b);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // line
+        ctx.beginPath();
+        chartPoints.forEach((p, i) => { const px = x(p.t), py = y(p.v); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+        ctx.strokeStyle = "#ab9ff2";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // last dot
+        const last = chartPoints[chartPoints.length - 1];
+        ctx.beginPath();
+        ctx.arc(x(last.t), y(last.v), 3.5, 0, 2 * Math.PI);
+        ctx.fillStyle = "#ab9ff2";
+        ctx.fill();
+      }
+
+      async function loadHistory(addr) {
+        chartPoints = [];
+        seenIds.clear();
+        try {
+          const rows = await apiFetch(`/refresh/${addr}/history?limit=120`);
+          rows.forEach((s) => {
+            if (s.id) seenIds.add(s.id);
+            chartPoints.push({ id: s.id, t: new Date(s.createdAt).getTime(), v: Number(s.totalValue) });
+          });
+          chartPoints.sort((a, b) => a.t - b.t);
+        } catch (e) {
+          log("Could not load refresh history: " + e.message, "bad");
+        }
+        drawChart();
+        if (chartPoints.length) {
+          const last = chartPoints[chartPoints.length - 1];
+          streamStatus.textContent = "seeded · last " + fmtUsd(last.v);
+        }
+      }
+
+      function openStream(addr) {
+        closeStream();
+        eventSource = new EventSource(`/refresh/${addr}/stream`);
+        eventSource.onopen = () => { streamDot.classList.add("live"); streamStatus.textContent = "live · waiting for snapshots…"; };
+        eventSource.onmessage = (e) => { try { addPoint(JSON.parse(e.data)); } catch (_) {} };
+        eventSource.onerror = () => { streamDot.classList.remove("live"); streamStatus.textContent = "reconnecting…"; };
+      }
+      function closeStream() {
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        streamDot.classList.remove("live");
+        streamStatus.textContent = "idle";
+      }
+
+      // Switch the wallet every panel + the chart target to `addr`.
+      function setActiveAddress(addr) {
+        addrInput.value = addr;
+        if (signedInEl.hidden) return;
+        loadHistory(addr);
+        openStream(addr);
+      }
+
+      // --- wiring ---
       btn.addEventListener("click", signIn);
       reauthBtn.addEventListener("click", signIn);
       logoutBtn.addEventListener("click", logout);
+      document.getElementById("useMine").addEventListener("click", () => { if (connectedPk) setActiveAddress(connectedPk); });
+      addrInput.addEventListener("change", () => { const a = activeAddress(); if (a) setActiveAddress(a); });
+
+      document.querySelectorAll("[data-wallet]").forEach((b) =>
+        b.addEventListener("click", () => runWallet(b.getAttribute("data-wallet"))),
+      );
+      el("btn-portfolio").addEventListener("click", runPortfolio);
+      el("btn-market").addEventListener("click", runMarket);
+      el("btn-normalize").addEventListener("click", () => runNormalize(false));
+      el("btn-normalize-me").addEventListener("click", () => runNormalize(true));
+      aiBtn.addEventListener("click", runAi);
+      el("btn-refresh").addEventListener("click", async () => {
+        const addr = activeAddress();
+        if (!addr) return;
+        const b = el("btn-refresh");
+        b.disabled = true;
+        try { await apiFetch(`/refresh/${addr}`, { method: "POST" }); } // snapshot arrives back over SSE
+        catch (e) { log("Refresh failed: " + e.message, "bad"); }
+        finally { b.disabled = false; }
+      });
+      window.addEventListener("resize", () => { if (!signedInEl.hidden) drawChart(); });
 
       // Restore any existing session on load.
       restoreSession();
