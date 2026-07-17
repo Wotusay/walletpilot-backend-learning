@@ -20,67 +20,100 @@ Full plan: [`backend_learning_plan.md`](./backend_learning_plan.md). Matching Gi
 1. ✅ NestJS Architecture & Modules — [Issue #1](https://github.com/Wotusay/walletpilot-backend-learning/issues/1)
 2. ✅ Auth & JWT (Wallet Sign-In) — [Issue #2](https://github.com/Wotusay/walletpilot-backend-learning/issues/2)
 3. ✅ Background Jobs & Redis Caching — [Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3)
-4. AI Service Integration — [Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4) ← **you are here**
-5. Testing & Documentation — [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5)
+4. ✅ AI Service Integration — [Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4)
+5. Testing & Documentation — [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5) ← **you are here**
 
-## Current step: Topic 4 — Asset Normalization + AI Service Integration
+## Current step: Topic 5 — Testing & Documentation
 
 ### What's already here
 
-- Topics 1–3 fully wired: real DI, a working wallet-signature auth flow, and real portfolio data — `WalletService` hits Solana devnet for balance/tokens/tx history, `MarketDataService` hits CoinGecko for prices, both cached via `CACHE_MANAGER` with a TTL, refreshed on a schedule by `RefreshService`, and persisted to Postgres as `PortfolioSnapshot` rows.
-- `PortfolioService.getSummary()` still returns `holdings: []` — nothing classifies or normalizes what's actually in a wallet yet.
-- `AIService`/`AiModule` are still `ping` stubs — no AI call exists yet. That's this topic.
+- Topics 1–4 fully wired: real auth, real portfolio data, caching/scheduling/persistence, asset normalization, and `AiService` calling Claude with a strict tool-use schema, validated with `zod`.
+- One real test already exists — `src/normalization/normalization.service.spec.ts` — a `NormalizationService` unit test using `Test.createTestingModule` with `WalletService`/`MarketDataService` mocked via provider overrides. That's the exact pattern to reuse for `AuthService` and `AiService` below.
+- No OpenAPI spec, no Scalar reference, no global exception filter, and no `docker-compose.yml` app service or health check yet. That's this topic — and per the earlier re-check against the original PDF, it now also covers running the *whole* stack (app + Redis + Postgres) with one command, not just Redis/Postgres.
 
 Try it once it's running:
 ```bash
+npm run test
 curl http://localhost:3000/portfolio/abc123/summary
-curl http://localhost:3000/ai/ping
 ```
 
-### Why normalize before calling the AI, and why the AI can't touch the chain itself (read this first)
+### Why testing + docs + a health check close the loop (read this first)
 
-The original brief is explicit about two things for this part: the AI receives *structured portfolio data* and returns *structured JSON*, and **"the AI must not query blockchain APIs directly."** Both of those are about the same idea — keeping a hard boundary between "fetching/shaping data" and "reasoning about data":
+Every other topic added a *capability*. This one adds the *proof* that the capabilities work, and makes them usable by someone who isn't you:
 
-- **Normalization first.** Right now a wallet's holdings are three different shapes: a SOL balance (a number), SPL token accounts (`{ mint, tokenAmount, decimals }`), and eventually tokenized stocks. An LLM prompt is far more reliable when every holding looks the same going in — one `PortfolioAsset` shape (`{ symbol, type, amount, usdValue }`) regardless of where it came from. You already have the real prices (Topic 3) to compute `usdValue` and allocation %.
-- **Classification matters for the analysis itself.** "Risk level" and "diversification" are meaningless without knowing *what kind* of asset each holding is — 100% in one memecoin is a very different risk profile than 100% in a stablecoin, even though both are "100% one asset."
-- **Why the AI never touches the chain:** if `AIService` could call Solana/CoinGecko itself, you'd lose the guarantee that its output is reproducible and testable (the same normalized input should produce a comparable analysis), you'd be handing an LLM prompt injection surface directly onto live infrastructure, and you couldn't unit-test it without hitting real APIs. Feeding it a plain object keeps the AI a pure function: structured data in, structured JSON out — nothing else.
-- **Why the output needs a schema, not just "please return JSON":** LLMs are good at approximately following formatting instructions and bad at *guaranteeing* them — a stray sentence before the JSON, a missing field, a health score returned as a string instead of a number will all break a naive `JSON.parse`. Validating the response against a schema (`zod`) is what turns "usually valid JSON" into "guaranteed-valid JSON or a clear error you can retry on."
+- **Why unit tests matter now specifically.** `WalletService`, `MarketDataService`, and `AiService` all call real external things — Solana RPC, CoinGecko, Claude. A test suite that hits those for real is slow, flaky, sometimes costs money, and breaks in CI with no network. NestJS's DI is exactly what makes this solvable: `Test.createTestingModule({ providers: [...] })` lets you swap the real `JwtService`/Anthropic client for a `jest.fn()` stand-in, same as your normalization spec already does for `WalletService`/`MarketDataService`.
+- **Why OpenAPI + Scalar, not just "read the code."** A generated, browsable API reference is the contract of what your backend does, without anyone (a reviewer, a future frontend, your boss) having to open `auth.controller.ts` to find out what `/auth/verify` expects. `@nestjs/swagger`'s `DocumentBuilder` generates the spec from your existing decorators; Scalar just renders it nicer than the default Swagger UI.
+- **Why a *global* exception filter, not per-service try/catch.** Right now error handling is ad hoc — `AiService` throws `InternalServerErrorException` directly, other services throw whatever NestJS defaults to. A global filter gives every uncaught error the same shape on the way out (so API consumers can rely on it) and the same structured log on the way in (so *you* can find it later) — one place instead of re-implementing it per service.
+- **Why Docker Compose + `/health` is the actual finish line.** `docker-compose.yml` currently only has `redis` and `postgres` — the app itself isn't in it yet, so "clone and run" still requires knowing to run `npm install` and set env vars by hand. Adding the app service (with a `Dockerfile`) plus a `/health` route that actually checks Redis/Postgres connectivity is what turns "trust me it works" into something a stranger can verify by running one command — which is exactly what makes this credible as a portfolio piece.
 
 ### Assignments
 
-Do these in order. Don't move to Topic 5 until you can explain the "Done when" for each.
+Do these in order.
 
 **1. Install what you need.**
 ```bash
-npm install zod @anthropic-ai/sdk
+npm install @nestjs/swagger @scalar/nestjs-api-reference @nestjs/terminus
 ```
 Done when: `npm run start:dev` still boots cleanly with these installed but unused.
 
-**2. Classify assets.**
-Define an `AssetType` (`'Crypto' | 'Stablecoin' | 'TokenizedEquity' | 'NFT'`). Write a classifier function: a small lookup table of known stablecoin mint addresses (e.g. devnet/mainnet USDC) → `Stablecoin`, everything else → `Crypto` for now (tokenized equity/NFT can stay unimplemented stubs — the brief marks NFT optional).
-Done when: a stablecoin mint classifies as `Stablecoin` and native SOL classifies as `Crypto`.
+**2. Unit test `AuthService`.**
+Following the same pattern as `normalization.service.spec.ts`: mock `JwtService` via a provider override, test `generateNonce` (two calls for the same key return different nonces) and `verifySignature` (a valid signature returns a token, an invalid one throws `UnauthorizedException`, a re-used nonce fails).
+Done when: `npm run test` shows these passing without ever hitting a real network call.
 
-**3. Normalize into one shape.**
-Write a function that takes the raw outputs from `WalletService` (SOL balance, SPL tokens) and `MarketDataService` (prices) and returns `PortfolioAsset[]`: `{ symbol, type, amount, usdValue }` for every holding, using the real prices from Topic 3 to compute `usdValue`.
-Done when: calling it for a wallet with SOL + at least one token returns an array where every item has the same shape, regardless of whether it came from the native balance or an SPL account.
+**3. Unit test `AiService`.**
+Worth noting first: `AiService` currently does `new Anthropic({ apiKey: ... })` inline in a property initializer rather than injecting the client — that makes it hard to substitute a mock. Consider making the `Anthropic` client an injectable provider (e.g. a custom provider token) first, *then* write the test: mock `client.messages.create` to return a canned `tool_use` block, assert `analyze()` returns it, and assert that a response failing `AnalysisSchema` throws instead of silently returning bad data.
+Done when: the test exercises both the valid-response and invalid-response paths without calling the real Claude API.
 
-**4. Compute portfolio-level metrics.**
-From the normalized array: total USD value (sum of `usdValue`), and allocation % per asset and per `AssetType`.
-Done when: for a test portfolio, the allocation percentages you compute sum to ~100% (floating point, so "close enough" is fine).
+**4. Generate the OpenAPI spec and render it with Scalar.**
+Use `DocumentBuilder` + `SwaggerModule.createDocument()` in `main.ts` to build the spec (decorate at least the `/auth` routes with `@ApiTags`/`@ApiOperation` etc.), then pass that document to `apiReference()` from `@scalar/nestjs-api-reference` mounted at `/reference`, instead of `SwaggerModule.setup()`.
+Done when: `/reference` in a browser shows the documented auth endpoints, generated from your real decorators.
 
-**5. Build `AIService` around the normalized data.**
-`AIService.analyze(portfolio: PortfolioAsset[])` builds a prompt describing the normalized portfolio + metrics, and asks Claude for exactly the JSON shape from the brief: executive summary, portfolio health score (0–100), risk level, diversification analysis, observations, potential risks, trading behavior. Use Claude's structured outputs (`output_format`) or tool-use-forced-JSON so the shape is enforced at the API layer, not just prompted for.
-Done when: a call with a real normalized portfolio returns a response containing all seven fields.
+**5. Add a global exception filter with structured logging.**
+Implement an `AllExceptionsFilter` (`@Catch()`) registered via `app.useGlobalFilters(...)` in `main.ts`. It should log a structured object (status, path, message, stack in dev) via NestJS's `Logger`, and return a consistent JSON error shape to the client regardless of which service threw.
+Done when: hitting a route that throws (e.g. an invalid Solana address) returns the same error shape as hitting a route that doesn't exist, and both produce one structured log line.
 
-**6. Validate the response with `zod`.**
-Define a `zod` schema matching that exact shape and parse the AI's response through it before returning it from `AIService`. On a parse failure, retry the call once (e.g. with a follow-up message pointing out the schema was violated) before throwing.
-Done when: you can simulate a malformed response (temporarily returning bad data) and see the retry/error path actually trigger, not just the happy path.
+**6. Bring the whole stack up with Docker Compose.**
+Add a `Dockerfile` for the NestJS app and an `app` service to `docker-compose.yml` alongside the existing `redis`/`postgres`, wired to the same env vars `ConfigService` already reads.
+Done when: `docker compose up` on a clean checkout gets you a working app talking to its own Redis and Postgres, with nothing installed on your machine except Docker.
 
-**7. Explain it in your own words.**
-Add your notes below and answer: what's the difference between "the AI decided the risk is high" being wrong because the AI reasoned badly, versus being wrong because the *input data* it received was already wrong — and which one does normalization protect you from?
+**7. Add a real health check.**
+Register `TerminusModule`, add a `HealthController` with `GET /health` using `HealthCheckService` plus indicators for Redis and the Postgres `TypeOrmHealthIndicator` (or a raw `SELECT 1`).
+Done when: `GET /health` returns healthy when the stack is up, and correctly reports unhealthy if you stop the `postgres` container while the app keeps running.
+
+**8. Explain it in your own words.**
+Add your notes below and answer: why does mocking `WalletService`/`MarketDataService` (like your normalization test already does) matter more here than it did in earlier topics — what would testing `AiService` against the *real* Claude API cost you that a mock doesn't?
 Done when: you've written that paragraph without looking it up.
 
 ## Notes
+
+_(fill this in once you've done the assignments — same as Topics 1–4)_
+
+### Documentation
+
+- [NestJS – Testing](https://docs.nestjs.com/fundamentals/testing)
+- [NestJS – OpenAPI introduction](https://docs.nestjs.com/openapi/introduction) (spec generation only, via `@nestjs/swagger`)
+- [Scalar – NestJS integration](https://scalar.com/products/api-references/integrations/nestjs) (`@scalar/nestjs-api-reference`)
+- [NestJS – Exception Filters](https://docs.nestjs.com/exception-filters)
+- [NestJS – Logger](https://docs.nestjs.com/techniques/logger)
+- [NestJS – Terminus (health checks)](https://docs.nestjs.com/recipes/terminus)
+
+### Video resources (watch in this order)
+
+1. [Unit Testing in Nest.js with Jest #1 — All About Mock, Testing Service Files](https://www.youtube.com/watch?v=aBjmdLmE2zI) — closest to Assignments 2–3, same mocking approach as your existing normalization spec.
+
+No solid dedicated video for Scalar+OpenAPI wiring, global exception filters, or Terminus health checks specifically — all three are short, focused docs pages (linked above) rather than topics with good video coverage; reading them directly is faster than searching for a mediocre video on any of the three.
+
+### Next
+
+Once all eight assignments are done, this is the last topic — update the Roadmap above to mark it ✅ and move this section into "Completed topics."
+
+## Completed topics
+
+### Topic 4 — Asset Normalization + AI Service Integration ✅
+
+[Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4) · `NormalizationService` classifies SPL mints (known stablecoins vs. everything-else-Crypto) and normalizes SOL + SPL holdings into one `PortfolioAsset` shape with computed allocation metrics; `AiService` calls Claude with a strict, forced tool-use schema (`additionalProperties: false`) and double-checks the response with a `zod` `AnalysisSchema`; `AiController` chains normalize → metrics → analyze behind `POST /ai/analyze/:address`.
+
+**Notes:**
 
 - Bad reasoning — input was correct, but the model drew the wrong conclusion from it. Fault is in the prompt/model/analysis logic.
 
@@ -94,26 +127,7 @@ Its real value: by removing input quality as a variable, it makes a wrong output
 
 Other notes: Still have a feeling that some part of the backend are not coming together. I have to check the code and see if the services are wired correctly. I also need to check if the AIService is actually calling the Claude API and getting a response. If not, I need to debug that part and see if there are any errors or misconfigurations. I also need to check if the zod schema is defined correctly and matches the expected output shape. If not, I need to fix that as well.
 
-### Documentation
-
-- [Claude API – Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) — the `output_config.format` approach (note: the older `output_format` param is deprecated).
-- [Claude API – Tool use overview](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview) — closest to Assignment 5's "tool-use-forced-JSON": define a tool with an `input_schema` and set `tool_choice` to force it, so Claude must return exactly that shape.
-- [Claude API – Intro](https://platform.claude.com/docs/en/intro)
-- [Anthropic TypeScript SDK (`@anthropic-ai/sdk`)](https://github.com/anthropics/anthropic-sdk-typescript) — the client you'll call from `AiService` (Assignment 5).
-- [Zod](https://zod.dev/) — schema validation for Assignment 6 (this project uses Zod v4: `import { z } from "zod"`).
-
-### Video resources (watch in this order)
-
-1. [Claude API: Strict Response Types/Schemas (for Dummies)](https://www.youtube.com/watch?v=kiooXcT4E0g) — closest to Assignment 5.
-2. [Zod Tutorial: Auto-Generate Schemas & Validate API Responses in TypeScript](https://www.youtube.com/watch?v=siQfpESFOhI) — closest to Assignment 6.
-
-No dedicated video for the asset-classification/normalization step (Assignments 2–4) — it's plain TypeScript, not a specific library or API, so there's nothing to link beyond just writing it directly from the "read this first" explanation above.
-
-### Next
-
-Once all seven assignments are done, move this section into "Completed topics" below, and update "Current step" to Topic 5 — Testing & Documentation (now also covering the full Docker Compose stack + health check).
-
-## Completed topics
+Documentation and videos used: [Claude API — Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) (the `output_config.format` approach — the older `output_format` param is deprecated), [Claude API — Tool use overview](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview), [Claude API — Intro](https://platform.claude.com/docs/en/intro), [Anthropic TypeScript SDK](https://github.com/anthropics/anthropic-sdk-typescript), [Zod](https://zod.dev/) (v4: `import { z } from "zod"`); [Claude API: Strict Response Types/Schemas (for Dummies)](https://www.youtube.com/watch?v=kiooXcT4E0g), [Zod Tutorial: Auto-Generate Schemas & Validate API Responses](https://www.youtube.com/watch?v=siQfpESFOhI).
 
 ### Topic 3 — Background Jobs & Redis Caching ✅
 
