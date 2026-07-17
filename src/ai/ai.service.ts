@@ -1,24 +1,24 @@
 import {
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
 } from "@nestjs/common";
 import Anthropic from "@anthropic-ai/sdk";
-import { ConfigService } from "@nestjs/config";
 import {
   PortfolioAsset,
   PortfolioMetrics,
 } from "src/normalization/normalization.service";
 
 import { AnalysisSchema } from "./schemas/analysis.schema";
+import { ANTHROPIC_CLIENT } from "./anthropic.client";
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly client: Anthropic = new Anthropic({
-    apiKey: this.config.get<string>("anthropicApiKey"),
-  });
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    @Inject(ANTHROPIC_CLIENT) private readonly client: Anthropic,
+  ) {}
 
   async analyze(portfolio: PortfolioAsset[], metrics: PortfolioMetrics) {
     const tool: Anthropic.Tool = {
