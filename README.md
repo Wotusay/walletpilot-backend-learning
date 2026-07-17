@@ -33,9 +33,15 @@ Full plan: [`backend_learning_plan.md`](./backend_learning_plan.md). Matching Gi
 
 Try it once it's running:
 ```bash
-npm run test
+npm run test              # or: bun run test
 curl http://localhost:3000/portfolio/abc123/summary
 ```
+
+> ⚠️ **Run the tests via `bun run test`, never `bun test`.** `bun test` invokes
+> bun's *own* built-in test runner, which ignores our Jest config (ts-jest transform,
+> `src/*` path mapping) and fails with errors like
+> `Export named 'Cache' not found in cache-manager`. `bun run test` executes the
+> `"test": "jest"` script — i.e. real Jest. (`npx jest` works too.)
 
 ### Why testing + docs + a health check close the loop (read this first)
 

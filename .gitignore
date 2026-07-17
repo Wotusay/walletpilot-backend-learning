@@ -10,5 +10,6 @@ agents/
 # Node / NestJS build artifacts
 node_modules/
 dist/
+coverage/
 *.log
 .env
