@@ -92,7 +92,7 @@ Done when: you've written that paragraph without looking it up.
 
 ## Notes
 
-_(fill this in once you've done the assignments — same as Topics 1–4)_
+In earlier topics mocking was mostly about speed — skipping a slow RPC or HTTP call. With AiService the dependency is also non-deterministic and not free: every test run against the real Claude API costs money, takes seconds, needs a live network and an API key in CI, and can fail for reasons unrelated to my code (rate limits, transient 5xx). And because the model can return a valid-but-differently-worded response each time, I'd have to weaken my assertions until they check almost nothing. The decisive part is that the real API can't give me the case I care about most: I can't ask Claude to reliably return output that fails AnalysisSchema, but with client.messages.create mocked I just hand it a bad response and assert it throws. The mock turns a probabilistic service into a fixed input, so the test exercises my code — the prompt, the validation, the error mapping — instead of Anthropic's uptime.
 
 ### Documentation
 
