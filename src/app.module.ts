@@ -8,6 +8,7 @@ import { AiModule } from "./ai/ai.module";
 import { AlertsModule } from "./alerts/alerts.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { RefreshModule } from "./refresh/refresh.module";
+import { HealthModule } from "./health/health.module";
 import { CacheModule } from "@nestjs/cache-manager";
 import { ConfigService } from "@nestjs/config";
 import KeyvRedis from "@keyv/redis";
@@ -23,6 +24,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
     AiModule,
     AlertsModule,
     RefreshModule,
+    HealthModule,
     ScheduleModule.forRoot(),
     CacheModule.registerAsync({
       isGlobal: true, // Make the cache module global so it can be used in any module without importing it
