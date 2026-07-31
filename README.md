@@ -21,99 +21,121 @@ Full plan: [`backend_learning_plan.md`](./backend_learning_plan.md). Matching Gi
 2. ✅ Auth & JWT (Wallet Sign-In) — [Issue #2](https://github.com/Wotusay/walletpilot-backend-learning/issues/2)
 3. ✅ Background Jobs & Redis Caching — [Issue #3](https://github.com/Wotusay/walletpilot-backend-learning/issues/3)
 4. ✅ AI Service Integration — [Issue #4](https://github.com/Wotusay/walletpilot-backend-learning/issues/4)
-5. Testing & Documentation — [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5) ← **you are here**
+5. ✅ Testing & Documentation — [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5)
+6. Bonus Features — [Issue #6](https://github.com/Wotusay/walletpilot-backend-learning/issues/6) ← **you are here** (optional — pick 2–3, not all seven)
 
-## Current step: Topic 5 — Testing & Documentation
+## Current step: Bonus Features — pick your own depth
 
 ### What's already here
 
-- Topics 1–4 fully wired: real auth, real portfolio data, caching/scheduling/persistence, asset normalization, and `AiService` calling Claude with a strict tool-use schema, validated with `zod`.
-- One real test already exists — `src/normalization/normalization.service.spec.ts` — a `NormalizationService` unit test using `Test.createTestingModule` with `WalletService`/`MarketDataService` mocked via provider overrides. That's the exact pattern to reuse for `AuthService` and `AiService` below.
-- No OpenAPI spec, no Scalar reference, no global exception filter, and no `docker-compose.yml` app service or health check yet. That's this topic — and per the earlier re-check against the original PDF, it now also covers running the *whole* stack (app + Redis + Postgres) with one command, not just Redis/Postgres.
+- Topics 1–5 are fully done: real auth, real portfolio data, caching/scheduling/persistence, asset normalization, AI analysis, unit tests, `/reference` API docs, a global exception filter, and a real `/health` check.
+- This topic is different from the previous five: it's **optional, and not meant to be done in full.** Same philosophy as picking the original 5 topics out of the whole assignment brief — read through the seven options below and pick 2–3 you actually want to go deep on.
+- A few things already half-exist and are worth knowing about before you pick:
+  - `src/alerts/` (`AlertsModule`/`AlertsService`/`AlertsController`) is a real stub from Topic 1 — `GET /alerts/ping` only. It's the natural place to build option 2 (watchlists & alerts) instead of a new module.
+  - `RefreshService` (`@Cron(CronExpression.EVERY_MINUTE)`) already writes a `PortfolioSnapshot` row every minute — that's real historical data sitting unused, and it's the entire prerequisite for option 4 (performance over time).
+  - `WalletService.getTransactionsHistory()` only calls `getSignaturesForAddress` — it returns signatures, not what a transaction actually did. Option 3 (AI transaction explanations) needs the fuller `getParsedTransaction` call, not what's there now.
+  - `classifyAsset()` in `src/normalization/types/asset-type.ts` only checks a hardcoded stablecoin allowlist — option 7 (scam detection) is a natural extension of that same function, not a separate system.
 
-Try it once it's running:
-```bash
-npm run test              # or: bun run test
-curl http://localhost:3000/portfolio/abc123/summary
-```
+### The options
 
-> ⚠️ **Run the tests via `bun run test`, never `bun test`.** `bun test` invokes
-> bun's *own* built-in test runner, which ignores our Jest config (ts-jest transform,
-> `src/*` path mapping) and fails with errors like
-> `Export named 'Cache' not found in cache-manager`. `bun run test` executes the
-> `"test": "jest"` script — i.e. real Jest. (`npx jest` works too.)
+Each is independent — you don't need to do them in order, and doing one doesn't require any of the others.
 
-### Why testing + docs + a health check close the loop (read this first)
+**1. Real-time WebSocket updates.**
 
-Every other topic added a *capability*. This one adds the *proof* that the capabilities work, and makes them usable by someone who isn't you:
+*Concepts:* right now the client has to poll `GET /portfolio/:address/summary` to see anything change. A WebSocket gateway lets the server push an update the moment `RefreshService`'s cron job refreshes that wallet's data — the same pattern real trading apps use instead of hammering an endpoint every few seconds.
 
-- **Why unit tests matter now specifically.** `WalletService`, `MarketDataService`, and `AiService` all call real external things — Solana RPC, CoinGecko, Claude. A test suite that hits those for real is slow, flaky, sometimes costs money, and breaks in CI with no network. NestJS's DI is exactly what makes this solvable: `Test.createTestingModule({ providers: [...] })` lets you swap the real `JwtService`/Anthropic client for a `jest.fn()` stand-in, same as your normalization spec already does for `WalletService`/`MarketDataService`.
-- **Why OpenAPI + Scalar, not just "read the code."** A generated, browsable API reference is the contract of what your backend does, without anyone (a reviewer, a future frontend, your boss) having to open `auth.controller.ts` to find out what `/auth/verify` expects. `@nestjs/swagger`'s `DocumentBuilder` generates the spec from your existing decorators; Scalar just renders it nicer than the default Swagger UI.
-- **Why a *global* exception filter, not per-service try/catch.** Right now error handling is ad hoc — `AiService` throws `InternalServerErrorException` directly, other services throw whatever NestJS defaults to. A global filter gives every uncaught error the same shape on the way out (so API consumers can rely on it) and the same structured log on the way in (so *you* can find it later) — one place instead of re-implementing it per service.
-- **Why Docker Compose + `/health` is the actual finish line.** `docker-compose.yml` currently only has `redis` and `postgres` — the app itself isn't in it yet, so "clone and run" still requires knowing to run `npm install` and set env vars by hand. Adding the app service (with a `Dockerfile`) plus a `/health` route that actually checks Redis/Postgres connectivity is what turns "trust me it works" into something a stranger can verify by running one command — which is exactly what makes this credible as a portfolio piece.
+*Build:* add `@nestjs/websockets` + `@nestjs/platform-socket.io`, a `PortfolioGateway` with `@WebSocketGateway()`, and have `RefreshService` emit an event on that gateway after each snapshot write (scoped to clients subscribed to that address — don't broadcast every wallet's data to everyone).
 
-### Assignments
+*Done when:* two browser tabs connected to the same address both see a balance change within a minute of it happening on devnet, with no polling involved.
 
-Do these in order.
+*Docs:* [NestJS — Gateways](https://docs.nestjs.com/websockets/gateways), [NestJS — Adapter](https://docs.nestjs.com/websockets/adapter)
+*Video:* [NestJS Websockets Tutorial #1 — Creating a Websocket Gateway Server](https://www.youtube.com/watch?v=iObzX8-Y5xg)
 
-**1. Install what you need.**
-```bash
-npm install @nestjs/swagger @scalar/nestjs-api-reference @nestjs/terminus
-```
-Done when: `npm run start:dev` still boots cleanly with these installed but unused.
+**2. Wallet watchlists & alerts.**
 
-**2. Unit test `AuthService`.**
-Following the same pattern as `normalization.service.spec.ts`: mock `JwtService` via a provider override, test `generateNonce` (two calls for the same key return different nonces) and `verifySignature` (a valid signature returns a token, an invalid one throws `UnauthorizedException`, a re-used nonce fails).
-Done when: `npm run test` shows these passing without ever hitting a real network call.
+*Concepts:* turning `AlertsService` from a ping stub into something real — a user watches a set of addresses/mints, defines a threshold (e.g. "alert me if SOL balance drops below X" or "alert me if a new token appears in this wallet"), and something checks that threshold and fires. This is the most "product-shaped" of the seven options.
 
-**3. Unit test `AiService`.**
-Worth noting first: `AiService` currently does `new Anthropic({ apiKey: ... })` inline in a property initializer rather than injecting the client — that makes it hard to substitute a mock. Consider making the `Anthropic` client an injectable provider (e.g. a custom provider token) first, *then* write the test: mock `client.messages.create` to return a canned `tool_use` block, assert `analyze()` returns it, and assert that a response failing `AnalysisSchema` throws instead of silently returning bad data.
-Done when: the test exercises both the valid-response and invalid-response paths without calling the real Claude API.
+*Build:* a `Watchlist` entity (owner JWT `sub`, address, rule type, threshold — TypeORM, next to `PortfolioSnapshot`), and hook the check into the existing `RefreshService` cron tick (it already runs every minute and already has the fresh data — don't add a second scheduler). For delivery, a logged/stored alert record is a legitimate "done" — wiring it to email/Discord/etc. is a further stretch, not the baseline.
 
-**4. Generate the OpenAPI spec and render it with Scalar.**
-Use `DocumentBuilder` + `SwaggerModule.createDocument()` in `main.ts` to build the spec (decorate at least the `/auth` routes with `@ApiTags`/`@ApiOperation` etc.), then pass that document to `apiReference()` from `@scalar/nestjs-api-reference` mounted at `/reference`, instead of `SwaggerModule.setup()`.
-Done when: `/reference` in a browser shows the documented auth endpoints, generated from your real decorators.
+*Done when:* you can register a watchlist rule via an endpoint, trigger it for real on devnet (e.g. send yourself some SOL to cross a threshold), and see the alert recorded.
 
-**5. Add a global exception filter with structured logging.**
-Implement an `AllExceptionsFilter` (`@Catch()`) registered via `app.useGlobalFilters(...)` in `main.ts`. It should log a structured object (status, path, message, stack in dev) via NestJS's `Logger`, and return a consistent JSON error shape to the client regardless of which service threw.
-Done when: hitting a route that throws (e.g. an invalid Solana address) returns the same error shape as hitting a route that doesn't exist, and both produce one structured log line.
+*Docs:* [NestJS — Task Scheduling](https://docs.nestjs.com/techniques/task-scheduling) (you already used this in Topic 3), [NestJS — SQL (TypeORM) recipe](https://docs.nestjs.com/recipes/sql-typeorm)
+*Video:* none specifically for "alerts" as a concept — it's a combination of things you already used in Topics 3 and 1, so there isn't a single good tutorial that maps onto this exact shape.
 
-**6. Bring the whole stack up with Docker Compose.**
-Add a `Dockerfile` for the NestJS app and an `app` service to `docker-compose.yml` alongside the existing `redis`/`postgres`, wired to the same env vars `ConfigService` already reads.
-Done when: `docker compose up` on a clean checkout gets you a working app talking to its own Redis and Postgres, with nothing installed on your machine except Docker.
+**3. AI transaction explanations.**
 
-**7. Add a real health check.**
-Register `TerminusModule`, add a `HealthController` with `GET /health` using `HealthCheckService` plus indicators for Redis and the Postgres `TypeOrmHealthIndicator` (or a raw `SELECT 1`).
-Done when: `GET /health` returns healthy when the stack is up, and correctly reports unhealthy if you stop the `postgres` container while the app keeps running.
+*Concepts:* `AiService` already explains a portfolio *snapshot*. This is the same idea applied to one transaction — "what actually happened here" in plain English, instead of a raw list of instructions. The hard part isn't the AI call (you've done that in Topic 4), it's getting real instruction data to feed it — `getSignaturesForAddress` only gives you signatures, not contents.
 
-**8. Explain it in your own words.**
-Add your notes below and answer: why does mocking `WalletService`/`MarketDataService` (like your normalization test already does) matter more here than it did in earlier topics — what would testing `AiService` against the *real* Claude API cost you that a mock doesn't?
-Done when: you've written that paragraph without looking it up.
+*Build:* `connection.getParsedTransaction(signature, { maxSupportedTransactionVersion: 0 })` to get the actual parsed instructions, then a new tool-use schema (same strict + `zod` pattern as `AiService.analyze`) asking Claude to summarize what the transaction did (transfer, swap, token approval, etc.) in 1-2 sentences, grounded only in the parsed instruction data — same "don't invent numbers" system prompt discipline as Topic 4.
+
+*Done when:* given a real devnet transaction signature, the endpoint returns a plain-English explanation that matches what actually happened (verify a couple by hand against a Solana explorer).
+
+*Docs:* [Solana — getTransaction](https://solana.com/docs/rpc/http/gettransaction), [QuickNode — getParsedTransaction](https://www.quicknode.com/docs/solana/getParsedTransaction)
+*Video:* none solid for this specific combination — the parsing side and the AI side are each well covered individually (Topic 3's Solana Cookbook links, Topic 4's Claude tool-use video), but nobody's made a video connecting them for this exact use case.
+
+**4. Portfolio performance over time.**
+
+*Concepts:* the lowest-effort, highest-payoff option — `PortfolioSnapshot` rows already exist every minute since Topic 3, unused. This is a real "how did my portfolio do" chart, not a mock.
+
+*Build:* a `GET /portfolio/:address/history` endpoint that queries `PortfolioSnapshot` for a date range, and computes % change between the first and last snapshot in that range (day/week/month). Plain Postgres is genuinely fine at this scale — a specialized time-series DB (TimescaleDB) is only worth mentioning as a "if you had millions of snapshots" stretch, not something to reach for here.
+
+*Done when:* the endpoint returns a real series of `{ timestamp, totalValue }` points from actual stored snapshots, and a computed % change that you've verified by hand against two of the raw rows.
+
+*Docs:* [NestJS — SQL (TypeORM) recipe](https://docs.nestjs.com/recipes/sql-typeorm) (you already used this), [TypeORM — QueryBuilder](https://typeorm.io/select-query-builder) (for the date-range + ordering query)
+*Video:* none needed — this is a straight TypeORM query against a table you've already built; if `Topic 3`'s TypeORM video made sense to you, this will too.
+
+**5. Multi-wallet support.**
+
+*Concepts:* right now identity *is* one wallet address — the JWT `sub` is the public key, and every route takes one `:address`. Real portfolio apps track several wallets under one identity. The interesting design question: what's the identity now, if not "the wallet"?
+
+*Build:* the smallest real version is a `WatchedWallet`-style table linking a JWT `sub` (still the wallet you signed in with) to N *additional* addresses, plus an aggregate endpoint (e.g. `GET /portfolio/me/summary`) that runs the existing `NormalizationService`/`computeMetrics` across all linked addresses and merges the result. You don't need multi-wallet *login* — that's a much bigger auth redesign and not the point here.
+
+*Done when:* you can link a second address to your session and get back one combined portfolio view (correct combined USD total, not just two separate summaries concatenated).
+
+*Docs:* [NestJS — SQL (TypeORM) recipe](https://docs.nestjs.com/recipes/sql-typeorm)
+*Video:* none specific — this is a data-modeling exercise on top of code you've already written, not new framework surface area.
+
+**6. Multi-chain support.**
+
+*Concepts:* the biggest option on this list. Everything in this app is Solana-shaped (`Connection`, `PublicKey`, lamports). Adding a second chain — realistically an EVM chain (Ethereum/Polygon/etc.) via `ethers.js` or `viem` — means designing a common interface (a "chain adapter") that `WalletService` and `NormalizationService` can call without knowing which chain they're talking to.
+
+*Build:* define a small interface (e.g. `ChainAdapter { getBalance(address), getTokenBalances(address) }`), keep the existing Solana logic as one implementation, add a second EVM implementation (viem's public client `getBalance`/`readContract` for ERC-20s), and have `WalletService` pick the adapter based on address format or an explicit chain param. This is a genuine architecture exercise, not a small addition — go in expecting it to take longer than the others.
+
+*Done when:* the same portfolio endpoint returns real balances for both a Solana devnet address and an EVM testnet address, through the same code path.
+
+*Docs:* [viem — Getting Started](https://viem.sh/docs/getting-started), [ethers.js — Getting Started](https://docs.ethers.org/v6/getting-started/)
+*Video:* [Tutorial on using viem — an EVM library better than ethers!](https://www.youtube.com/watch?v=2dPVKiDvjHc)
+
+**7. Scam token detection.**
+
+*Concepts:* `classifyAsset()` currently only checks a hardcoded stablecoin list — everything else is just "Crypto". Real scam/rug-pull detection on Solana checks a small set of on-chain facts about the mint itself: does the creator still hold *mint authority* (can print unlimited supply), does it hold *freeze authority* (can lock your tokens so you can't sell), and is holder concentration dangerously high (one wallet holding a huge share of supply).
+
+*Build:* `getMint()` from `@solana/spl-token` for `mintAuthority`/`freezeAuthority` (non-null = red flag), and `getTokenLargestAccounts()` to compute what % of supply the top holder(s) control. Fold the result into `classifyAsset()` or a parallel `assessRisk(mint)` function — a boolean/enum flag, not a full scoring model.
+
+*Done when:* run against a few real devnet/mainnet mints, the check correctly flags at least one token with active mint or freeze authority, and correctly clears a well-known token (e.g. real USDC) that has neither.
+
+*Docs:* [Solana — Mint Tokens](https://solana.com/docs/tokens/basics/mint-tokens), [Helius — getTokenLargestAccounts guide](https://www.helius.dev/docs/rpc/guides/gettokenlargestaccounts)
+*Video:* none solid — this is a narrow, Solana-specific check better learned from the docs above than a general video.
 
 ## Notes
 
-In earlier topics mocking was mostly about speed — skipping a slow RPC or HTTP call. With AiService the dependency is also non-deterministic and not free: every test run against the real Claude API costs money, takes seconds, needs a live network and an API key in CI, and can fail for reasons unrelated to my code (rate limits, transient 5xx). And because the model can return a valid-but-differently-worded response each time, I'd have to weaken my assertions until they check almost nothing. The decisive part is that the real API can't give me the case I care about most: I can't ask Claude to reliably return output that fails AnalysisSchema, but with client.messages.create mocked I just hand it a bad response and assert it throws. The mock turns a probabilistic service into a fixed input, so the test exercises my code — the prompt, the validation, the error mapping — instead of Anthropic's uptime.
-
-### Documentation
-
-- [NestJS – Testing](https://docs.nestjs.com/fundamentals/testing)
-- [NestJS – OpenAPI introduction](https://docs.nestjs.com/openapi/introduction) (spec generation only, via `@nestjs/swagger`)
-- [Scalar – NestJS integration](https://scalar.com/products/api-references/integrations/nestjs) (`@scalar/nestjs-api-reference`)
-- [NestJS – Exception Filters](https://docs.nestjs.com/exception-filters)
-- [NestJS – Logger](https://docs.nestjs.com/techniques/logger)
-- [NestJS – Terminus (health checks)](https://docs.nestjs.com/recipes/terminus)
-
-### Video resources (watch in this order)
-
-1. [Unit Testing in Nest.js with Jest #1 — All About Mock, Testing Service Files](https://www.youtube.com/watch?v=aBjmdLmE2zI) — closest to Assignments 2–3, same mocking approach as your existing normalization spec.
-
-No solid dedicated video for Scalar+OpenAPI wiring, global exception filters, or Terminus health checks specifically — all three are short, focused docs pages (linked above) rather than topics with good video coverage; reading them directly is faster than searching for a mediocre video on any of the three.
+_(fill this in once you've picked your options and built them — same as Topics 1–5)_
 
 ### Next
 
-Once all eight assignments are done, this is the last topic — update the Roadmap above to mark it ✅ and move this section into "Completed topics."
+This is the last topic in the repo (bonus, optional). Once you've built the options you picked, update the Roadmap above to mark it ✅, list which options you actually did, and move this section into "Completed topics."
 
 ## Completed topics
+
+### Topic 5 — Testing & Documentation ✅
+
+[Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5) · unit tests for `AuthService` (nonce/signature/replay) and `AiService` (valid response, schema-failure, missing tool_use — with `Anthropic` pulled out into an injectable `ANTHROPIC_CLIENT` provider so it can be mocked), OpenAPI spec generated via `DocumentBuilder` and rendered at `/reference` with `@scalar/nestjs-api-reference`, a global `AllExceptionsFilter` giving every uncaught error one consistent JSON shape and one structured log line, and a real `GET /health` via `@nestjs/terminus` (Postgres `TypeOrmHealthIndicator` + a hand-built Redis indicator doing an actual cache round-trip). Docker Compose app service was left as a known gap — `docker-compose.yml` still only has `redis`/`postgres`, no `Dockerfile` or `app` service yet.
+
+**Notes:**
+
+In earlier topics mocking was mostly about speed — skipping a slow RPC or HTTP call. With AiService the dependency is also non-deterministic and not free: every test run against the real Claude API costs money, takes seconds, needs a live network and an API key in CI, and can fail for reasons unrelated to my code (rate limits, transient 5xx). And because the model can return a valid-but-differently-worded response each time, I'd have to weaken my assertions until they check almost nothing. The decisive part is that the real API can't give me the case I care about most: I can't ask Claude to reliably return output that fails AnalysisSchema, but with client.messages.create mocked I just hand it a bad response and assert it throws. The mock turns a probabilistic service into a fixed input, so the test exercises my code — the prompt, the validation, the error mapping — instead of Anthropic's uptime.
+
+Documentation and videos used: [NestJS – Testing](https://docs.nestjs.com/fundamentals/testing), [NestJS – OpenAPI introduction](https://docs.nestjs.com/openapi/introduction), [Scalar – NestJS integration](https://scalar.com/products/api-references/integrations/nestjs), [NestJS – Exception Filters](https://docs.nestjs.com/exception-filters), [NestJS – Logger](https://docs.nestjs.com/techniques/logger), [NestJS – Terminus (health checks)](https://docs.nestjs.com/recipes/terminus); [Unit Testing in Nest.js with Jest #1 — All About Mock, Testing Service Files](https://www.youtube.com/watch?v=aBjmdLmE2zI).
 
 ### Topic 4 — Asset Normalization + AI Service Integration ✅
 
