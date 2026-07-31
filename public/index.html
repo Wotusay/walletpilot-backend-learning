@@ -346,6 +346,9 @@
       <div id="result" class="result"></div>
     </div>
 
+    <!-- socket.io serves its own browser client from the Nest server, so the
+         live chart needs no CDN and works offline. -->
+    <script src="/socket.io/socket.io.js"></script>
     <script>
       // --- tiny, dependency-free base58 encoder (Bitcoin/Solana alphabet) ---
       // Phantom's signMessage returns raw bytes; the API decodes with bs58.decode,
@@ -829,7 +832,8 @@
       // ======================= LIVE CHART =======================
       let chartPoints = []; // { id, t, v }
       const seenIds = new Set();
-      let eventSource = null;
+      let socket = null;         // socket.io connection (replaces the old EventSource)
+      let watchedAddress = null; // address whose room this socket is joined to
       const chartCanvas = el("chart");
       const streamDot = el("stream-dot");
       const streamStatus = el("stream-status");
@@ -927,15 +931,37 @@
         }
       }
 
+      // One socket for the page's whole lifetime; switching wallets just swaps
+      // the room we're subscribed to, instead of reconnecting.
       function openStream(addr) {
-        closeStream();
-        eventSource = new EventSource(`/refresh/${addr}/stream`);
-        eventSource.onopen = () => { streamDot.classList.add("live"); streamStatus.textContent = "live · waiting for snapshots…"; };
-        eventSource.onmessage = (e) => { try { addPoint(JSON.parse(e.data)); } catch (_) {} };
-        eventSource.onerror = () => { streamDot.classList.remove("live"); streamStatus.textContent = "reconnecting…"; };
+        watchedAddress = addr;
+
+        if (!socket) {
+          socket = io(); // same origin as the page
+          // Also runs on every reconnect: socket.io restores the connection but
+          // NOT its room memberships, so re-subscribe here rather than above.
+          socket.on("connect", () => socket.emit("subscribe", watchedAddress));
+          // The gateway echoes "subscribed" once the room join is done, so the
+          // dot only goes green when we're genuinely watching that wallet.
+          socket.on("subscribed", () => {
+            streamDot.classList.add("live");
+            streamStatus.textContent = "live · waiting for snapshots…";
+          });
+          socket.on("snapshot", (snapshot) => addPoint(snapshot));
+          socket.on("disconnect", () => { streamDot.classList.remove("live"); streamStatus.textContent = "reconnecting…"; });
+          socket.on("connect_error", () => { streamDot.classList.remove("live"); streamStatus.textContent = "reconnecting…"; });
+          return; // the "connect" handler sends the first subscribe
+        }
+
+        if (socket.connected) socket.emit("subscribe", addr);
       }
       function closeStream() {
-        if (eventSource) { eventSource.close(); eventSource = null; }
+        if (socket) {
+          if (socket.connected) socket.emit("unsubscribe");
+          socket.disconnect();
+          socket = null;
+        }
+        watchedAddress = null;
         streamDot.classList.remove("live");
         streamStatus.textContent = "idle";
       }
@@ -968,7 +994,7 @@
         if (!addr) return;
         const b = el("btn-refresh");
         b.disabled = true;
-        try { await apiFetch(`/refresh/${addr}`, { method: "POST" }); } // snapshot arrives back over SSE
+        try { await apiFetch(`/refresh/${addr}`, { method: "POST" }); } // snapshot arrives back over the websocket
         catch (e) { log("Refresh failed: " + e.message, "bad"); }
         finally { b.disabled = false; }
       });
