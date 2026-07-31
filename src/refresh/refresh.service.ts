@@ -13,9 +13,9 @@ import { Repository } from "typeorm";
 export class RefreshService {
   private readonly logger = new Logger(RefreshService.name);
 
-  // In-process event bus: every saved snapshot is pushed here so SSE
-  // subscribers (per address) get it live. A singleton service means the cron
-  // and the on-demand POST share the same bus.
+  // In-process event bus: every saved snapshot is pushed here so live
+  // subscribers (SSE per address, the WebSocket gateway) get it. A singleton
+  // service means the cron and the on-demand POST share the same bus.
   private readonly snapshots$ = new Subject<PortfolioSnapshot>();
 
   constructor(
@@ -71,5 +71,12 @@ export class RefreshService {
       filter((snapshot) => snapshot.address === address),
       map((snapshot) => ({ data: snapshot })),
     );
+  }
+
+  // Unfiltered stream of every saved snapshot, for transports that fan out
+  // themselves (PortfolioGateway routes each one to its per-address room).
+  // Read-only on purpose: only refreshWallet() may push onto the bus.
+  public get snapshots(): Observable<PortfolioSnapshot> {
+    return this.snapshots$.asObservable();
   }
 }
