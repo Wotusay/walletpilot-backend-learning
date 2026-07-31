@@ -75,6 +75,16 @@ Order: architecture first (you need the skeleton before anything else fits into 
 
 **Expanded (added):** a `docker-compose.yml` bringing up the app, Redis, and PostgreSQL together, plus a `GET /health` route (or `@nestjs/terminus`) confirming all three are up — the "run this whole real app with one command" check. See [Issue #5](https://github.com/Wotusay/walletpilot-backend-learning/issues/5).
 
+## 6. Bonus Features (optional — pick 2–3)
+
+**Concepts:** WebSocket gateways for push updates, threshold-based alerting on scheduled data, feeding parsed on-chain data to an LLM, querying historical time-series rows, multi-entity data modeling, chain-agnostic architecture, and heuristic risk scoring from on-chain account data.
+
+**Build:** seven independent options — real-time WebSocket portfolio updates, wallet watchlists & alerts (built on the existing `AlertsModule` stub), AI transaction explanations (via `getParsedTransaction`), portfolio performance over time (querying the `PortfolioSnapshot` rows already being written), multi-wallet support, multi-chain (EVM) support via a chain-adapter interface, and scam token detection (mint/freeze authority + holder concentration checks).
+
+**Resources:** see the README's "Current step" section — each option has its own concepts explanation, docs, and video resources.
+
+**Done when:** at least one option is implemented for real, not all seven — same "pick your depth" philosophy as choosing the original 5 topics. See [Issue #6](https://github.com/Wotusay/walletpilot-backend-learning/issues/6).
+
 ---
 
 ## Suggested pacing
