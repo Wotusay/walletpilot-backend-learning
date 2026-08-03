@@ -5,6 +5,7 @@ import { Test } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
 import { AddressInfo } from "net";
 import { io, Socket as ClientSocket } from "socket.io-client";
+import { Watchlist } from "src/alerts/watchlist.entity";
 import { MarketDataService } from "src/market-data/market-data.service";
 import { PortfolioSnapshot } from "src/portfolio/portfolio.entity";
 import { WalletService } from "src/wallet/wallet.service";
@@ -94,6 +95,12 @@ describe("PortfolioGateway (integration)", () => {
           },
         },
         { provide: ConfigService, useValue: { get: () => ADDRESS } },
+        {
+          // The cron reads watched addresses from here; this suite drives
+          // refreshWallet() directly, so an empty list is enough.
+          provide: getRepositoryToken(Watchlist),
+          useValue: { find: jest.fn(async () => []) },
+        },
         {
           provide: getRepositoryToken(PortfolioSnapshot),
           useValue: {
