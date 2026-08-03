@@ -10,7 +10,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   // Serve the static Phantom test page (public/index.html) from the same origin
   // as the API, so the browser flow talks to /auth/* with no CORS setup.
-  app.useStaticAssets(join(__dirname, '..', 'public'));
+  app.useStaticAssets(join(process.cwd(), 'public'));
 
   // Every uncaught error leaves as one consistent JSON shape + one structured log line.
   app.useGlobalFilters(new AllExceptionsFilter());
