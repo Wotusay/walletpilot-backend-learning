@@ -8,6 +8,7 @@ import { WalletService } from "src/wallet/wallet.service";
 import { Subject, Observable } from "rxjs";
 import { filter, map } from "rxjs/operators";
 import { Repository } from "typeorm";
+import { Watchlist } from "src/alerts/watchlist.entity";
 
 @Injectable()
 export class RefreshService {
@@ -24,6 +25,8 @@ export class RefreshService {
     private readonly config: ConfigService,
     @InjectRepository(PortfolioSnapshot)
     private readonly snapshotRepository: Repository<PortfolioSnapshot>,
+    @InjectRepository(Watchlist)
+    private readonly watchlistRepository: Repository<Watchlist>,
   ) {}
 
   // Fetch balance + price for one wallet, persist a snapshot, and broadcast it.
@@ -50,10 +53,34 @@ export class RefreshService {
     return snapshot;
   }
 
-  // Background job — refreshes the configured default wallet every minute.
+  // Background job — every minute, refresh the default wallet plus any wallet
+  // someone has a watchlist rule on. Still the only scheduler in the app: the
+  // alert checks ride on the snapshots this produces.
   @Cron(CronExpression.EVERY_MINUTE)
   public async refresh() {
-    await this.refreshWallet(this.config.get<string>("defaultWallet")!);
+    for (const address of await this.watchedAddresses()) {
+      // Sequential, and one failure must not skip the rest of the tick: devnet
+      // RPC is rate-limited, and WalletService caches for 45s anyway.
+      try {
+        await this.refreshWallet(address);
+      } catch (err) {
+        this.logger.error(`Refresh failed for ${address}`, err as Error);
+      }
+    }
+  }
+
+  // Distinct addresses this tick should cover.
+  private async watchedAddresses(): Promise<string[]> {
+    const rules = await this.watchlistRepository.find({
+      where: { active: true },
+      select: { address: true },
+    });
+    return [
+      ...new Set([
+        this.config.get<string>("defaultWallet")!,
+        ...rules.map((rule) => rule.address),
+      ]),
+    ];
   }
 
   // Oldest → newest so the chart can plot left-to-right directly.
