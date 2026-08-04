@@ -74,7 +74,7 @@
       button.ghost:hover { border-color: var(--accent); }
       button.sm { padding: 7px 12px; font-size: 13px; }
 
-      input[type="text"] {
+      input[type="text"], select {
         background: #0b0d12;
         border: 1px solid var(--border);
         border-radius: 10px;
@@ -82,7 +82,8 @@
         font: 13px var(--mono);
         padding: 10px 12px;
       }
-      input[type="text"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      input[type="text"]:focus-visible,
+      select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
       /* --- header (signed in) --- */
       .topbar {
@@ -168,6 +169,25 @@
       .badge.medium { color: var(--warn); }
       .badge.high { color: var(--err); }
       .badge.type { color: var(--accent); border-color: var(--border); }
+      .badge.armed { color: var(--muted); }
+      .badge.breached { color: var(--err); }
+
+      /* --- watchlists & alerts --- */
+      .subhead {
+        margin: 16px 0 8px;
+        font: 600 10.5px var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      .subhead:first-child { margin-top: 0; }
+      button.icon {
+        background: transparent; color: var(--dim); border: 0;
+        padding: 0 2px; font: 14px var(--mono); cursor: pointer;
+      }
+      button.icon:hover { color: var(--err); }
+      tr.fresh td { animation: flash 1.4s ease-out; }
+      @keyframes flash { from { background: rgba(248, 113, 113, 0.16); } to { background: transparent; } }
 
       /* allocation bars */
       .alloc { display: grid; grid-template-columns: 90px 1fr 52px; gap: 6px 10px; align-items: center; font: 12.5px var(--mono); margin-top: 4px; }
@@ -335,6 +355,31 @@
               <span id="stream-status">idle</span>
             </div>
           </section>
+
+          <!-- Watchlists & alerts -->
+          <section class="panel wide">
+            <div class="panel-head">
+              <span class="eyebrow">Watchlists · alerts</span>
+              <span class="countdown">checked on every refresh tick</span>
+            </div>
+            <div class="row">
+              <select id="alert-rule">
+                <option value="SOL_BALANCE_BELOW">SOL balance drops below</option>
+                <option value="SOL_BALANCE_ABOVE">SOL balance rises above</option>
+                <option value="TOTAL_VALUE_BELOW">Total value drops below</option>
+                <option value="TOTAL_VALUE_ABOVE">Total value rises above</option>
+              </select>
+              <input type="text" id="alert-threshold" value="1" style="width: 100px" />
+              <button id="btn-watch-add" class="ghost sm">Arm rule</button>
+              <span class="countdown">on <strong id="alert-target">—</strong></span>
+            </div>
+
+            <div class="subhead">Armed rules</div>
+            <div class="out" id="out-watchlists"><span class="placeholder">— none yet —</span></div>
+
+            <div class="subhead">Recent alerts</div>
+            <div class="out" id="out-alerts"><span class="placeholder">— none yet —</span></div>
+          </section>
         </div>
 
         <details class="logbox">
@@ -470,6 +515,8 @@
         clearResult();
         setActiveAddress(sub); // default every call to the connected wallet
         startCountdown(decodeJwt(jwt).exp);
+        loadWatchlists();
+        loadAlerts();
       }
 
       async function logout() {
@@ -579,7 +626,9 @@
         });
         if (res.status === 401) { onExpired(); throw new Error("401 — session expired"); }
         if (!res.ok) throw new Error(res.status + " — " + (await res.text().catch(() => "")));
-        return res.json();
+        // DELETE returns 200 with an empty body — res.json() would throw on it.
+        const body = await res.text();
+        return body ? JSON.parse(body) : null;
       }
 
       const activeAddress = () => addrInput.value.trim();
@@ -829,6 +878,99 @@
         node.appendChild(cols);
       }
 
+      // ======================= WATCHLISTS & ALERTS =======================
+      // Rules are armed against the *active address*, but owned by the wallet in
+      // the JWT — the backend takes the owner from the token, never from here.
+      const RULE_LABELS = {
+        SOL_BALANCE_BELOW: "SOL below",
+        SOL_BALANCE_ABOVE: "SOL above",
+        TOTAL_VALUE_BELOW: "value below",
+        TOTAL_VALUE_ABOVE: "value above",
+      };
+      const ruleUnit = (rule) => (rule.startsWith("SOL_BALANCE") ? "SOL" : "USD");
+      const fmtRuleValue = (rule, v) =>
+        ruleUnit(rule) === "SOL" ? fmtNum(v, 6) + " SOL" : fmtUsd(v);
+
+      let alertRows = []; // newest first, mirrors GET /alerts
+
+      async function loadWatchlists() {
+        const node = el("out-watchlists");
+        try {
+          const rules = await apiFetch("/alerts/watchlists");
+          if (!rules.length) return empty(node, "no rules armed — add one above");
+          node.innerHTML = "";
+          node.appendChild(makeTable(
+            ["Address", "Rule", "Threshold", "State", ""],
+            rules.map((r) => {
+              const state = document.createElement("span");
+              state.className = "badge " + (r.breached ? "breached" : "armed");
+              state.textContent = r.breached ? "breached" : "armed";
+              const del = document.createElement("button");
+              del.className = "icon";
+              del.textContent = "✕";
+              del.title = "Delete rule";
+              del.addEventListener("click", () => deleteWatchRule(r.id));
+              return [short(r.address, 5), RULE_LABELS[r.rule] || r.rule, fmtRuleValue(r.rule, r.threshold), state, del];
+            }),
+          ));
+        } catch (e) { setError(node, e); }
+      }
+
+      // `fresh` marks the row that just arrived over the socket so it flashes.
+      function renderAlerts(freshId) {
+        const node = el("out-alerts");
+        if (!alertRows.length) return empty(node, "nothing has fired yet");
+        node.innerHTML = "";
+        const table = makeTable(
+          ["Time", "Address", "Rule", "Observed", "Threshold"],
+          alertRows.map((a) => [
+            new Date(a.createdAt).toLocaleTimeString(),
+            short(a.address, 5),
+            RULE_LABELS[a.rule] || a.rule,
+            fmtRuleValue(a.rule, a.observedValue),
+            fmtRuleValue(a.rule, a.threshold),
+          ]),
+        );
+        if (freshId) {
+          const i = alertRows.findIndex((a) => a.id === freshId);
+          if (i >= 0) table.tBodies[0].rows[i].className = "fresh";
+        }
+        node.appendChild(table);
+      }
+
+      async function loadAlerts() {
+        try {
+          alertRows = await apiFetch("/alerts?limit=25");
+          renderAlerts();
+        } catch (e) { setError(el("out-alerts"), e); }
+      }
+
+      async function addWatchRule() {
+        const address = activeAddress();
+        if (!address) return;
+        const rule = el("alert-rule").value;
+        const threshold = Number(el("alert-threshold").value);
+        const b = el("btn-watch-add");
+        b.disabled = true;
+        try {
+          await apiFetch("/alerts/watchlists", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address, rule, threshold }),
+          });
+          log("✓ Armed " + RULE_LABELS[rule] + " " + threshold + " on " + short(address, 5), "good");
+          await loadWatchlists();
+        } catch (e) { setError(el("out-watchlists"), e); }
+        finally { b.disabled = false; }
+      }
+
+      async function deleteWatchRule(id) {
+        try {
+          await apiFetch("/alerts/watchlists/" + id, { method: "DELETE" });
+          await loadWatchlists();
+        } catch (e) { setError(el("out-watchlists"), e); }
+      }
+
       // ======================= LIVE CHART =======================
       let chartPoints = []; // { id, t, v }
       const seenIds = new Set();
@@ -940,7 +1082,19 @@
           socket = io(); // same origin as the page
           // Also runs on every reconnect: socket.io restores the connection but
           // NOT its room memberships, so re-subscribe here rather than above.
-          socket.on("connect", () => socket.emit("subscribe", watchedAddress));
+          // Alerts ride the same socket — AlertsGateway shares this namespace
+          // and only differs by event name — and are keyed on the signed-in
+          // wallet, not the address being charted.
+          socket.on("connect", () => {
+            socket.emit("subscribe", watchedAddress);
+            if (connectedPk) socket.emit("subscribeAlerts", connectedPk);
+          });
+          socket.on("alert", (alert) => {
+            alertRows = [alert, ...alertRows].slice(0, 25);
+            renderAlerts(alert.id);
+            log("🔔 " + alert.message, "bad");
+            loadWatchlists(); // the rule just latched — refresh its state badge
+          });
           // The gateway echoes "subscribed" once the room join is done, so the
           // dot only goes green when we're genuinely watching that wallet.
           socket.on("subscribed", () => {
@@ -957,7 +1111,10 @@
       }
       function closeStream() {
         if (socket) {
-          if (socket.connected) socket.emit("unsubscribe");
+          if (socket.connected) {
+            socket.emit("unsubscribe");
+            socket.emit("unsubscribeAlerts");
+          }
           socket.disconnect();
           socket = null;
         }
@@ -969,6 +1126,7 @@
       // Switch the wallet every panel + the chart target to `addr`.
       function setActiveAddress(addr) {
         addrInput.value = addr;
+        el("alert-target").textContent = short(addr, 5);
         if (signedInEl.hidden) return;
         loadHistory(addr);
         openStream(addr);
@@ -989,6 +1147,7 @@
       el("btn-normalize").addEventListener("click", () => runNormalize(false));
       el("btn-normalize-me").addEventListener("click", () => runNormalize(true));
       aiBtn.addEventListener("click", runAi);
+      el("btn-watch-add").addEventListener("click", addWatchRule);
       el("btn-refresh").addEventListener("click", async () => {
         const addr = activeAddress();
         if (!addr) return;
