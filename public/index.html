@@ -159,6 +159,8 @@
       table.data td:last-child, table.data th:last-child { text-align: right; padding-right: 0; }
       ol.sigs { margin: 0; padding-left: 22px; font: 12.5px var(--mono); color: var(--muted); }
       ol.sigs li { padding: 3px 0; }
+      ol.sigs li.clickable { cursor: pointer; }
+      ol.sigs li.clickable:hover { color: var(--accent); }
 
       .badge {
         display: inline-block; font: 600 11px var(--mono); letter-spacing: 0.06em;
@@ -210,6 +212,8 @@
       .ai-section ul { margin: 0; padding-left: 20px; font-size: 14px; }
       .ai-section li { padding: 2px 0; }
       .ai-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .tx-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+      .tx-summary { margin: 0; font-size: 14px; color: var(--text); }
 
       /* chart */
       .chart-wrap { position: relative; }
@@ -339,6 +343,13 @@
               <button id="btn-ai">Analyze</button>
             </div>
             <div class="out" id="out-ai"><span class="placeholder">— structured portfolio analysis from Claude —</span></div>
+
+            <div class="subhead">Explain a transaction</div>
+            <div class="row">
+              <input type="text" id="tx-sig" placeholder="transaction signature…" spellcheck="false" autocomplete="off" style="flex: 1 1 280px" />
+              <button id="btn-explain-tx" class="ghost sm">Explain</button>
+            </div>
+            <div class="out" id="out-tx"><span class="placeholder">— paste a signature, or click one in the Wallet panel —</span></div>
           </section>
 
           <!-- Refresh + live chart -->
@@ -712,6 +723,11 @@
               const li = document.createElement("li");
               const sig = s.signature || s;
               li.textContent = short(sig, 8) + (s.confirmationStatus ? "  · " + s.confirmationStatus : "");
+              // The text is truncated by short(), so keep the full signature on
+              // hover — and let a click hand it to the AI explainer.
+              li.className = "clickable";
+              li.title = sig + "\n(click to explain)";
+              li.addEventListener("click", () => runExplainTx(sig));
               ol.appendChild(li);
             });
             node.appendChild(ol);
@@ -803,6 +819,24 @@
       }
 
       // ---- AI analysis ----
+      // Shared by both AI renderers below.
+      const section = (title, contentNode) => {
+        const s = document.createElement("div");
+        s.className = "ai-section";
+        const h = document.createElement("h3");
+        h.textContent = title;
+        s.appendChild(h);
+        s.appendChild(contentNode);
+        return s;
+      };
+      const para = (txt) => { const p = document.createElement("p"); p.textContent = txt || "—"; return p; };
+      const list = (items) => {
+        const ul = document.createElement("ul");
+        (items || []).forEach((it) => { const li = document.createElement("li"); li.textContent = it; ul.appendChild(li); });
+        if (!items || items.length === 0) { const li = document.createElement("li"); li.textContent = "—"; ul.appendChild(li); }
+        return ul;
+      };
+
       const aiBtn = el("btn-ai");
       async function runAi() {
         const addr = activeAddress();
@@ -852,23 +886,6 @@
         top.appendChild(summary);
         node.appendChild(top);
 
-        const section = (title, contentNode) => {
-          const s = document.createElement("div");
-          s.className = "ai-section";
-          const h = document.createElement("h3");
-          h.textContent = title;
-          s.appendChild(h);
-          s.appendChild(contentNode);
-          return s;
-        };
-        const para = (txt) => { const p = document.createElement("p"); p.textContent = txt || "—"; return p; };
-        const list = (items) => {
-          const ul = document.createElement("ul");
-          (items || []).forEach((it) => { const li = document.createElement("li"); li.textContent = it; ul.appendChild(li); });
-          if (!items || items.length === 0) { const li = document.createElement("li"); li.textContent = "—"; ul.appendChild(li); }
-          return ul;
-        };
-
         node.appendChild(section("Diversification", para(a.diversificationAnalysis)));
         node.appendChild(section("Trading behavior", para(a.tradingBehavior)));
         const cols = document.createElement("div");
@@ -876,6 +893,51 @@
         cols.appendChild(section("Observations", list(a.observations)));
         cols.appendChild(section("Potential risks", list(a.potentialRisks)));
         node.appendChild(cols);
+      }
+
+      // ---- AI transaction explainer ----
+      const txBtn = el("btn-explain-tx");
+      async function runExplainTx(sig) {
+        const signature = (sig || el("tx-sig").value).trim();
+        const node = el("out-tx");
+        if (!signature) return empty(node, "enter a transaction signature");
+        el("tx-sig").value = signature;
+        txBtn.disabled = true;
+        txBtn.innerHTML = 'Explaining<span class="spinner"></span>';
+        setBusy(node);
+        try {
+          const x = await apiFetch(`/ai/explain-tx/${signature}`, { method: "POST" });
+          renderExplanation(node, x);
+        } catch (e) { setError(node, e); }
+        finally { txBtn.disabled = false; txBtn.textContent = "Explain"; }
+      }
+      function renderExplanation(node, x) {
+        node.innerHTML = "";
+        const badges = document.createElement("div");
+        badges.className = "tx-head";
+        const type = document.createElement("span");
+        type.className = "badge type";
+        type.textContent = x.transactionType || "?";
+        const conf = document.createElement("span");
+        // Confidence reuses the risk palette, but inverted: High confidence is
+        // the good case, so it takes the green .low class.
+        const c = String(x.confidence || "").toLowerCase();
+        conf.className = "badge " + (c === "high" ? "low" : c === "medium" ? "medium" : "high");
+        conf.textContent = (x.confidence || "?") + " confidence";
+        badges.appendChild(type);
+        badges.appendChild(conf);
+        node.appendChild(badges);
+
+        const summary = para(x.summary);
+        summary.className = "tx-summary";
+        node.appendChild(summary);
+
+        const cols = document.createElement("div");
+        cols.className = "ai-cols";
+        cols.appendChild(section("Amounts", list(x.amounts)));
+        cols.appendChild(section("Programs", list(x.programsInvolved)));
+        node.appendChild(cols);
+        node.appendChild(section("Caveats", list(x.caveats)));
       }
 
       // ======================= WATCHLISTS & ALERTS =======================
@@ -1147,6 +1209,8 @@
       el("btn-normalize").addEventListener("click", () => runNormalize(false));
       el("btn-normalize-me").addEventListener("click", () => runNormalize(true));
       aiBtn.addEventListener("click", runAi);
+      txBtn.addEventListener("click", () => runExplainTx());
+      el("tx-sig").addEventListener("keydown", (e) => { if (e.key === "Enter") runExplainTx(); });
       el("btn-watch-add").addEventListener("click", addWatchRule);
       el("btn-refresh").addEventListener("click", async () => {
         const addr = activeAddress();
