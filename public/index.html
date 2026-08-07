@@ -345,6 +345,26 @@
             <div class="out" id="out-normalization"><span class="placeholder">— run a call —</span></div>
           </section>
 
+          <!-- Linked wallets + combined portfolio -->
+          <section class="panel wide">
+            <div class="panel-head">
+              <span class="eyebrow">Linked wallets · combined portfolio</span>
+              <button id="btn-combined" class="ghost sm">Combined summary</button>
+            </div>
+            <div class="row">
+              <input type="text" id="link-address" placeholder="another wallet address…" spellcheck="false" autocomplete="off" style="flex: 1 1 260px" />
+              <input type="text" id="link-label" placeholder="label (optional)" style="width: 140px" />
+              <button id="btn-link-wallet" class="ghost sm">Link</button>
+              <button id="btn-link-active" class="ghost sm">Use active address</button>
+            </div>
+
+            <div class="subhead">Wallets in this identity</div>
+            <div class="out" id="out-linked"><span class="placeholder">— none yet —</span></div>
+
+            <div class="subhead">Combined</div>
+            <div class="out" id="out-combined"><span class="placeholder">— one portfolio across every wallet above —</span></div>
+          </section>
+
           <!-- AI Analysis -->
           <section class="panel wide">
             <div class="panel-head">
@@ -557,6 +577,10 @@
         startCountdown(decodeJwt(jwt).exp);
         loadWatchlists();
         loadAlerts();
+        // Cheap (one DB read) and it's the identity's shape — worth having on
+        // screen immediately. The combined total stays on demand: it costs an
+        // RPC + price lookup per wallet.
+        loadLinkedWallets();
       }
 
       async function logout() {
@@ -844,6 +868,142 @@
               node.appendChild(row);
             });
           }
+        } catch (e) { setError(node, e); }
+      }
+
+      // ---- Linked wallets / combined portfolio ----
+      // The signed-in wallet is always in this list as `primary` — it's implied
+      // by the JWT, not stored, so it has a null id and no unlink button.
+      async function loadLinkedWallets() {
+        const node = el("out-linked");
+        try {
+          const wallets = await apiFetch("/portfolio/wallets");
+          node.innerHTML = "";
+          node.appendChild(makeTable(
+            ["Address", "Label", "Role", ""],
+            wallets.map((w) => {
+              const role = document.createElement("span");
+              role.className = "badge " + (w.primary ? "armed" : "type");
+              role.textContent = w.primary ? "primary" : "linked";
+              let action = "";
+              if (!w.primary) {
+                action = document.createElement("button");
+                action.className = "icon";
+                action.textContent = "✕";
+                action.title = "Unlink this wallet";
+                action.addEventListener("click", () => unlinkWallet(w.id));
+              }
+              return [short(w.address, 5), w.label || "—", role, action];
+            }),
+          ));
+        } catch (e) { setError(node, e); }
+      }
+
+      async function linkWallet() {
+        const address = el("link-address").value.trim();
+        if (!address) return;
+        const label = el("link-label").value.trim();
+        const b = el("btn-link-wallet");
+        b.disabled = true;
+        try {
+          await apiFetch("/portfolio/wallets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(label ? { address, label } : { address }),
+          });
+          log("✓ Linked " + short(address, 5), "good");
+          el("link-address").value = "";
+          el("link-label").value = "";
+          await afterWalletSetChange();
+        } catch (e) { setError(el("out-linked"), e); }
+        finally { b.disabled = false; }
+      }
+
+      async function unlinkWallet(id) {
+        try {
+          await apiFetch("/portfolio/wallets/" + id, { method: "DELETE" });
+          await afterWalletSetChange();
+        } catch (e) { setError(el("out-linked"), e); }
+      }
+
+      // Linking or unlinking changes what "combined" means, so refresh the
+      // total too — but only if it's already on screen, to avoid firing a
+      // wallet-full of RPC calls the user never asked for.
+      async function afterWalletSetChange() {
+        await loadLinkedWallets();
+        if (!el("out-combined").querySelector(".placeholder")) runCombined();
+      }
+
+      async function runCombined() {
+        const node = el("out-combined");
+        setBusy(node);
+        try {
+          const data = await apiFetch("/portfolio/me/summary");
+          const { assets, metrics, wallets } = data;
+          node.innerHTML = "";
+
+          const total = document.createElement("div");
+          total.className = "readout-big";
+          const covered = wallets.filter((w) => !w.error).length;
+          total.innerHTML =
+            fmtUsd(metrics.totalUsdValue) +
+            '<span class="unit">across ' + covered +
+            (covered === 1 ? " wallet" : " wallets") + "</span>";
+          node.appendChild(total);
+
+          // A wallet that couldn't be read is called out rather than silently
+          // dropped — otherwise a degraded total just looks like a small one.
+          wallets.filter((w) => w.error).forEach((w) => {
+            const warn = document.createElement("div");
+            warn.className = "err";
+            warn.style.marginTop = "6px";
+            warn.textContent = "✗ " + short(w.address, 5) + " — " + w.error;
+            node.appendChild(warn);
+          });
+
+          if (!assets.length) {
+            const p = document.createElement("div");
+            p.className = "placeholder";
+            p.style.marginTop = "10px";
+            p.textContent = "no holdings across these wallets";
+            node.appendChild(p);
+            return;
+          }
+
+          // Merged server-side: one row per symbol, however many wallets hold it.
+          const table = makeTable(
+            ["Symbol", "Type", "Amount", "USD"],
+            assets.map((a) => {
+              const badge = document.createElement("span");
+              badge.className = "badge type";
+              badge.textContent = a.type;
+              return [a.symbol, badge, fmtNum(a.amount, 4), fmtUsd(a.usdValue)];
+            }),
+          );
+          table.style.marginTop = "12px";
+          node.appendChild(table);
+
+          (metrics.allocationByAsset || []).forEach((a) => {
+            const row = document.createElement("div");
+            row.className = "alloc";
+            row.innerHTML =
+              "<span>" + a.symbol + "</span>" +
+              '<span class="track"><span class="fill" style="width:' + Math.min(100, a.pct).toFixed(1) + '%"></span></span>' +
+              '<span class="pct">' + a.pct.toFixed(1) + "%</span>";
+            node.appendChild(row);
+          });
+
+          // Per-wallet contribution, so it's obvious the total isn't one wallet.
+          const breakdown = makeTable(
+            ["Wallet", "Role", "USD"],
+            wallets.map((w) => [
+              short(w.address, 5) + (w.label ? "  · " + w.label : ""),
+              w.primary ? "primary" : "linked",
+              w.error ? "—" : fmtUsd(w.totalUsdValue),
+            ]),
+          );
+          breakdown.style.marginTop = "14px";
+          node.appendChild(breakdown);
         } catch (e) { setError(node, e); }
       }
 
@@ -1304,6 +1464,10 @@
       txBtn.addEventListener("click", () => runExplainTx());
       el("tx-sig").addEventListener("keydown", (e) => { if (e.key === "Enter") runExplainTx(); });
       el("btn-watch-add").addEventListener("click", addWatchRule);
+      el("btn-link-wallet").addEventListener("click", linkWallet);
+      el("link-address").addEventListener("keydown", (e) => { if (e.key === "Enter") linkWallet(); });
+      el("btn-link-active").addEventListener("click", () => { el("link-address").value = activeAddress(); });
+      el("btn-combined").addEventListener("click", runCombined);
       el("btn-refresh").addEventListener("click", async () => {
         const addr = activeAddress();
         if (!addr) return;
