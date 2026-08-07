@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { BadRequestException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
+import { NormalizationService } from "src/normalization/normalization.service";
 import { WalletService } from "src/wallet/wallet.service";
 import { PortfolioSnapshot } from "./portfolio.entity";
 import { PortfolioService } from "./portfolio.service";
+import { WatchedWallet } from "./watched-wallet.entity";
 
 const ADDRESS = "5HZ8AEgxmnBwwmMKH4LZXxU5h6kGgq7XoWfgNHuGVpyU";
 
@@ -49,11 +51,21 @@ describe("PortfolioService.getHistory", () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         PortfolioService,
-        // getHistory never touches the wallet, but the constructor needs it.
+        // getHistory touches neither the wallet, the normalizer nor the linked
+        // wallets — but the constructor needs all of them. See
+        // portfolio.multi-wallet.spec.ts for the tests that do exercise them.
         { provide: WalletService, useValue: { getBalance: jest.fn() } },
+        {
+          provide: NormalizationService,
+          useValue: { normalize: jest.fn(), computeMetrics: jest.fn() },
+        },
         {
           provide: getRepositoryToken(PortfolioSnapshot),
           useValue: { createQueryBuilder: jest.fn(() => builder) },
+        },
+        {
+          provide: getRepositoryToken(WatchedWallet),
+          useValue: { find: jest.fn(), findOne: jest.fn(), save: jest.fn(), delete: jest.fn() },
         },
       ],
     }).compile();
